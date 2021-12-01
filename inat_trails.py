@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ElementTree
 
 import aiohttp  # on Ubuntu install with: sudo apt install --yes python3-aiohttp
 from shapely.geometry import shape, Point, LineString, MultiLineString, Polygon, MultiPolygon   # on Ubuntu install with: sudo apt install --yes python3-shapely
+from shapely import strtree
 import folium   # on Ubuntu install with: pip3 install folium
 
 ACCURACY        = 25      # in meters; skip less accurate observations
@@ -275,78 +276,74 @@ def scale_bbox(bbox, precision):
 
 ##########################################################################
 # Loads named trails and roads for given bounding box and buffer polygon #
-# from OpenStreetMap. Returns list of pairs (name, (Multi)LineString).   #
+# from OpenStreetMap. Provides member function nearestTrail(lat, lon).   #
 ##########################################################################
 
-def getTrails(bbox, bufferPolygon):
-    ((min_lon, min_lat), (max_lon, max_lat)) = scale_bbox(bbox, 100)
-    file_name = os.path.join(cache_directory,
-                             f'trails_{min_lon:.2f}_{min_lat:.2f}_'
-                             f'{max_lon:.2f}_{max_lat:.2f}.json.gz')
-    if os.path.exists(file_name):
-        osm_data = readJson(file_name)
-    else:
-        osm_data = api.get_overpass(f"""
-        [out:json];
-        way["highway"] ({min_lat},{min_lon},{max_lat},{max_lon});
-        (._;>;);
-        out;
-        """)
-        if 'elements' in osm_data:
-            writeJson(file_name, osm_data)
+class Trails:
 
-    nodes = {} # id -> (lon, lat)
-    ways  = {} # name -> [LineString or MultiLineString, ...]
-    if 'elements' in osm_data:
-        for elem in osm_data['elements']:
-            type = elem['type']
-            id   = elem['id']
-            if type == 'node':
-                nodes[id] = (elem['lon'], elem['lat'])
-            else:
-                assert type == 'way'
-                if 'nodes' not in elem or len(elem['nodes']) < 2 or \
-                   'name' not in elem['tags']:
-                    continue
-                lineString = LineString([nodes[n] for n in elem['nodes']])
-                if lineString.intersects(bufferPolygon):
-                    name = elem['tags']['name']
-                    if name not in ways:
-                        ways[name] = []
-                    ways[name].append(lineString.intersection(bufferPolygon))
-
-    trails = [] # list of pairs (name, (Multi)LineString)
-    for name in sorted(ways):
-        lineStringList = ways[name]
-        if len(lineStringList) == 1:
-            trails.append((name, lineStringList[0]))
+    def __init__(self, bbox, bufferPolygon):
+        ((min_lon, min_lat), (max_lon, max_lat)) = scale_bbox(bbox, 100)
+        file_name = os.path.join(cache_directory,
+                                 f'trails_{min_lon:.2f}_{min_lat:.2f}_'
+                                 f'{max_lon:.2f}_{max_lat:.2f}.json.gz')
+        if os.path.exists(file_name):
+            osm_data = readJson(file_name)
         else:
-            flat = [] # flat list of LineString
-            for l in lineStringList:
-                if l.geom_type == 'LineString':
-                    flat.append(l)
-                else:
-                    assert l.geom_type == 'MultiLineString'
-                    flat += l.geoms
-            trails.append((name, MultiLineString(flat)))
-    print(f'Loaded {len(trails)} named roads and trails: '
-          f"{', '.join([t[0] for t in trails])}.")
-    return trails
+            osm_data = api.get_overpass(f"""
+            [out:json];
+            way["highway"] ({min_lat},{min_lon},{max_lat},{max_lon});
+            (._;>;);
+            out;
+            """)
+            if 'elements' in osm_data:
+                writeJson(file_name, osm_data)
 
-# Return list names of trails nearest to (lat, lon) or None
-def nearestTrail(lat, lon, trails):
-    point = Point(lon, lat)
-    nearest  = []
-    distance = 1e10
-    for trail in trails:
-        dist = trail[1].distance(point)
-        if dist < distance:
-            distance = dist
-            nearest = [trail]
-        elif dist == distance:
-            nearest.append(trail)
-    if nearest and distance < 2 * BUFFER_DISTANCE:
-        return [trail[0] for trail in nearest]
+        nodes = {} # id -> (lon, lat)
+        ways  = {} # name -> [LineString or MultiLineString, ...]
+        if 'elements' in osm_data:
+            for elem in osm_data['elements']:
+                type = elem['type']
+                if type == 'node':
+                    nodes[elem['id']] = (elem['lon'], elem['lat'])
+                else:
+                    assert type == 'way'
+                    if 'nodes' not in elem or len(elem['nodes']) < 2 or \
+                       'name' not in elem['tags']:
+                        continue
+                    lineString = LineString([nodes[n] for n in elem['nodes']])
+                    if lineString.intersects(bufferPolygon):
+                        name = elem['tags']['name']
+                        if name not in ways:
+                            ways[name] = []
+                        ways[name].append(lineString.
+                                          intersection(bufferPolygon))
+        objs = []
+        self.obj2name = {}
+        for name in sorted(ways):
+            lineStringList = ways[name]
+            if len(lineStringList) == 1:
+                obj = lineStringList[0]
+            else:
+                flat = [] # flat list of LineString
+                for l in lineStringList:
+                    if l.geom_type == 'LineString':
+                        flat.append(l)
+                    else:
+                        assert l.geom_type == 'MultiLineString'
+                        flat += l.geoms
+                obj = MultiLineString(flat)
+            objs.append(obj)
+            self.obj2name[id(obj)] = name
+        self.STRtree = strtree.STRtree(objs)
+        print(f'Loaded {len(ways)} named roads and trails: '
+              f"{', '.join(sorted(ways))}.")
+
+    # Return name of nearest trails to (lat, lon) or None.
+    def nearestTrail(self, lat, lon):
+        point = Point(lon, lat)
+        nearest = self.STRtree.nearest(point)
+        return self.obj2name[id(nearest)] \
+                   if nearest.distance(point) < 2 * BUFFER_DISTANCE else None
 
 
 ############################
@@ -497,7 +494,7 @@ def getObservations(bbox, bufferPolygon, iconic_taxa, quality_grade, trails):
                                   result['public_positional_accuracy'],
                                   lat, lon, result['observed_on'],
                                   user, result['quality_grade'],
-                                  nearestTrail(lat, lon, trails))
+                                  trails.nearestTrail(lat, lon))
         id = result['taxon']['id']
         if id not in id2taxon:
             _, name, cname, square_url, iconic = taxonInfo(result['taxon'])
@@ -761,11 +758,10 @@ def writeTable(iconic_taxa, iconic_taxa_arg, quality_grade, place_name):
                         if obs.trail is None:
                             no_trail_obs.append(obs)
                         else:
-                            for trail in obs.trail:
-                                if trail in trail2obs:
-                                    trail2obs[trail].append(obs)
-                                else:
-                                    trail2obs[trail] = [obs]
+                            if obs.trail in trail2obs:
+                                trail2obs[obs.trail].append(obs)
+                            else:
+                                trail2obs[obs.trail] = [obs]
 
                     def webLinks(observations):
                         linkList = ['<a href="https://www.inaturalist.org/'
@@ -882,10 +878,10 @@ if __name__ == '__main__':
         # compute buffer polygons around tracks
         bufferPolygon = lineStrings.buffer(BUFFER_DISTANCE)
 
-        # get trails and roads in bbox
-        trails = getTrails(bbox, bufferPolygon)
+        # get trails and roads in buffer polygon
+        trails = Trails(bbox, bufferPolygon)
 
-        # get observations within the buffer polygons and their taxa as
+        # get observations in the buffer polygon and their taxa as
         # well as a guess for the place name
         iconic_taxa, place_name = getObservations(bbox, bufferPolygon,
                                                   args.iconic_taxon,
