@@ -624,9 +624,12 @@ def getMap(bbox, iconic_taxa, lineStrings, bufferPolygon):
     folium.TileLayer('OpenStreetMap', name='OpenStreet Map',
                      max_zoom=19).add_to(m)
     folium.raster_layers.TileLayer(tiles='http://{s}.google.com/vt/lyrs=s,h&x='
-                                   '{x}&y={y}&z={z}', attr='Map data &copy; '
-                                   'Google', name='Google Satellite (hybrid)',
-                                   max_zoom=20,
+                                   '{x}&y={y}&z={z}', max_zoom=20,
+                                   attr='Imagery &copy;2021 CNES / Airbus Land'
+                                   'sat / Copernicus Maxar Technologies, '
+                                   'Planet.com, U.S. Geological Survey, USDA'
+                                   ' Farm Service Agency, Map data &copy;2021'
+                                   ' Google', name='Google Satellite (hybrid)',
                                    subdomains=['mt0', 'mt1', 'mt2', 'mt3'],
                                    overlay=False, control=True).add_to(m)
     folium.TileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
