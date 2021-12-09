@@ -862,7 +862,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('gpx_file', type=fileName, nargs='+',
-                        help='Import GPS track from .gpx file.')
+                        help='Load GPS track from .gpx file.')
     parser.add_argument('--quality_grade', type=qualityGrade,
                         help='Observation quality-grade, values: all, '
                         f"{', '.join(quality_grades)}; default research.",

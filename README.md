@@ -101,7 +101,7 @@ This script is a command-line tool. It is called with options and file names as 
 usage: inat_trails.py [-h] [--quality_grade QUALITY_GRADE] [--iconic_taxon ICONIC_TAXON] gpx_file [gpx_file ...]
 
 positional arguments:
-  gpx_file              Import GPS track from .gpx file.
+  gpx_file              Load GPS track from .gpx file.
 
 optional arguments:
   -h, --help            show this help message and exit
