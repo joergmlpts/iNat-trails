@@ -371,8 +371,8 @@ iconic_taxa2color = { 'Actinopterygii' : 'blue',
 # iNaturalist observation
 class Observation:
 
-    def __init__(self, id, obscured, accuracy, lat, lon, date, user, quality,
-                 trail):
+    def __init__(self, id, obscured, accuracy, lat, lon, date,
+                 login, user, quality, trail):
         self.id = id
         self.obscured = obscured
         self.accuracy = accuracy
@@ -381,6 +381,7 @@ class Observation:
         if isinstance(date, datetime.datetime):
             date = date.isoformat()
         self.date = date
+        self.login = login
         self.user = user
         self.quality = quality
         self.trail = trail
@@ -480,7 +481,8 @@ def getObservations(bbox, bufferPolygon, iconic_taxa, quality_grade, trails):
     obsOutside = obsAccuracy = 0
     for result in observations:
         user = result['user']
-        user = user['name'] if user['name'] else user['login']
+        login = user['login']
+        user = user['name'] if user['name'] else login
         lat, lon = [float(num) for num in result['location'].split(',')]
         if result['public_positional_accuracy'] is not None and \
            result['public_positional_accuracy'] > ACCURACY:
@@ -493,7 +495,7 @@ def getObservations(bbox, bufferPolygon, iconic_taxa, quality_grade, trails):
         observation = Observation(result['id'], result['obscured'],
                                   result['public_positional_accuracy'],
                                   lat, lon, result['observed_on'],
-                                  user, result['quality_grade'],
+                                  login, user, result['quality_grade'],
                                   trails.nearestTrail(lat, lon))
         id = result['taxon']['id']
         if id not in id2taxon:
@@ -717,7 +719,7 @@ def getMap(bbox, iconic_taxa, lineStrings, bufferPolygon):
     return m
 
 # write html table of observations and the trails they are on
-def writeTable(iconic_taxa, iconic_taxa_arg, quality_grade, place_name):
+def writeTable(iconic_taxa, iconic_taxa_arg, quality_grade, place_name, logins):
     observations_file_name = os.path.join(output_directory,
                                           f'{place_name}_{iconic_taxa_arg}_'
                                           f'{quality_grade}_observations.html')
@@ -769,7 +771,8 @@ def writeTable(iconic_taxa, iconic_taxa_arg, quality_grade, place_name):
                     def webLinks(observations):
                         linkList = ['<a href="https://www.inaturalist.org/'
                                     f'observations/{obs.id}" '
-                                    f'target="_blank">{obs.id}</a>'
+                                    'target="_blank">'
+                                    f'{obs.login if logins else obs.id}</a>'
                                     for obs in observations]
                         return ', '.join(linkList)
 
@@ -871,6 +874,9 @@ if __name__ == '__main__':
                         help='Iconic taxon, values: all, '
                         f"{', '.join(iconic_taxa2color)}; default all.",
                         default='all')
+    parser.add_argument('--login_names', action="store_true",
+                        help='Show login name instead of numeric observation '
+                        'id in table of observations.')
     args = parser.parse_args()
 
     for gpxFile in args.gpx_file:
@@ -896,7 +902,7 @@ if __name__ == '__main__':
 
         # write html table of observations and the trails they are on
         writeTable(iconic_taxa, args.iconic_taxon, args.quality_grade,
-                   place_name)
+                   place_name, args.login_names)
 
         # write html with observations on an interactive map
         file_name = os.path.join(output_directory,

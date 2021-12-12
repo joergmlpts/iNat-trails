@@ -110,12 +110,15 @@ optional arguments:
   --iconic_taxon ICONIC_TAXON
                         Iconic taxon, values: all, Actinopterygii, Amphibia, Animalia, Arachnida, Aves, Chromista,
                         Fungi, Insecta, Mammalia, Mollusca, Plantae, Protozoa, Reptilia; default all.
+  --login_names         Show login name instead of numeric observation id in table of observations.
 ```
 
 Option `--quality_grade` spcifies the desired quality-grade of the observations to show. By default, only research-grade observations are shown. Alternatively,
 all quality grades, or only casual and needs_id can be requested.
 
 Option `--iconic_taxon` allows to restrict the observations to an iconic taxon. This can be used to display observations of e.g. only birds or only plants.
+
+Option `--login_names` replaces the observation id number with the login name in the table of observations.
 
 
 ## Dependencies
