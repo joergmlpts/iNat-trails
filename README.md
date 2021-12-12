@@ -86,7 +86,7 @@ href="https://www.inaturalist.org/observations/47200360" target="_blank">4720036
  target="_blank">73152599</a></td></tr>
 </table>
 
-The numbers are the observation ids; a click opens them on the iNaturalist website. Option `--login_names` can be specified to replace these observation ids with login names.
+The numbers are the observation ids; a click opens them on the iNaturalist website. Option `--login_names` can be given to replace these observation ids with login names.
 
 The interactive map shows the route and the iNaturalist observations along the hike. Like the iNaturalist website, the markers on the interactive map have
 different colors for different iconic taxa, e.g. markers for plants are green. Hoovering the mouse over a marker shows the identification, a click on a marker
