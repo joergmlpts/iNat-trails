@@ -141,11 +141,12 @@ class iNaturalistAPI:
         return self.getResults()
 
     def get_taxa_by_id(self, ids):
+        MAX_TAXA = 30
         self.initCommand()
         splitIds = []
-        while len(ids) > self.PER_PAGE:
-            splitIds.append(ids[:self.PER_PAGE])
-            ids = ids[self.PER_PAGE:]
+        while len(ids) > MAX_TAXA:
+            splitIds.append(ids[:MAX_TAXA])
+            ids = ids[MAX_TAXA:]
         splitIds.append(ids)
         self.loop.run_until_complete(self.gather(
             [self.api_call('taxa/' + ','.join(idList)) for idList in splitIds]))
@@ -189,8 +190,8 @@ class iNaturalistAPI:
             data = await response.json()
 
             if 'error' in data and 'status' in data:
-                print(f"Error (page {page}) status {data['status']}: "
-                      f"{data['error']}.", file=sys.stderr)
+                print(f"API Error (cmd '{cmd}', params '{params}') status "
+                      f"{data['status']}: {data['error']}.", file=sys.stderr)
                 return
 
             if 'results' in data:
