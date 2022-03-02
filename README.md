@@ -111,6 +111,7 @@ optional arguments:
                         Iconic taxon, values: all, Actinopterygii, Amphibia, Animalia, Arachnida, Aves, Chromista,
                         Fungi, Insecta, Mammalia, Mollusca, Plantae, Protozoa, Reptilia; default all.
   --login_names         Show login name instead of numeric observation id in table of observations.
+  --month               Show only observations from this month and the previous and next months.
 ```
 
 Option `--quality_grade` spcifies the desired quality-grade of the observations to show. By default, only research-grade observations are shown. Alternatively,
@@ -120,6 +121,9 @@ Option `--iconic_taxon` allows to restrict the observations to an iconic taxon. 
 
 Option `--login_names` replaces the observation id number with the login name in the table of observations.
 
+Option `--month` restricts observations to the current month and the previous
+and next months. This is useful for seasonal observations like wildflowers
+or migratory birds.
 
 ## Dependencies
 
