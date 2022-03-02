@@ -448,12 +448,18 @@ def taxonInfo(taxon):
 
 # returns list of instances of class Taxon. The list is ordered by scientific
 # name. Each taxon contains a list of observations.
-def getObservations(bbox, bufferPolygon, iconic_taxa, quality_grade, trails):
+def getObservations(bbox, bufferPolygon, iconic_taxa, quality_grade, month,
+                    trails):
+    month_range = '1,2,3,4,5,6,7,8,9,10,11,12'
+    if month:
+        month = datetime.date.today().month
+        month_range = f'{month},{1 if month == 12 else month+1},' \
+                      f'{12 if month == 1 else month-1}'
     ((min_lon, min_lat), (max_lon, max_lat)) = scale_bbox(bbox, 100)
     file_name = os.path.join(cache_directory,
                              f'observations_{iconic_taxa}_{min_lon:.2f}_'
                              f'{min_lat:.2f}_{max_lon:.2f}_{max_lat:.2f}_'
-                             f'{quality_grade}.json.gz')
+                             f'{month_range}_{quality_grade}.json.gz')
 
     if os.path.exists(file_name):
         observations = readJson(file_name)
@@ -471,7 +477,8 @@ def getObservations(bbox, bufferPolygon, iconic_taxa, quality_grade, trails):
             swlng                = min_lon,
             swlat                = min_lat,
             quality_grade        = quality_grades if quality_grade == 'all' \
-                                   else quality_grade)
+                                   else quality_grade,
+            month                = month_range)
         writeJson(file_name, observations)
 
     print(f"Loaded {len(observations):,} iNaturalist observations of quality-"
@@ -720,7 +727,8 @@ def getMap(bbox, iconic_taxa, lineStrings, bufferPolygon):
     return m
 
 # write html table of observations and the trails they are on
-def writeTable(iconic_taxa, iconic_taxa_arg, quality_grade, place_name, logins):
+def writeTable(iconic_taxa, iconic_taxa_arg, quality_grade, month,
+               place_name, logins):
     observations_file_name = os.path.join(output_directory,
                                           f'{place_name}_{iconic_taxa_arg}_'
                                           f'{quality_grade}_observations.html')
@@ -731,10 +739,11 @@ def writeTable(iconic_taxa, iconic_taxa_arg, quality_grade, place_name, logins):
         print(f'<h1>{quality_grade[0].upper()}{quality_grade[1:].lower()}'
               f'-grade Observations from {place_name} on iNaturalist</h1>',
               file=f)
+        suffix = ' for observations around this month' if month else ''
         today = datetime.date.today()
         print(f'<p>Generated on {today.month}/{today.day}/{today.year} with '
               '<a href="https://github.com/joergmlpts/iNat-trails" '
-              'target="_blank">iNat-trails</a>.</p>', file=f)
+              f'target="_blank">iNat-trails</a>{suffix}.</p>', file=f)
         for iconic in iconic_taxa:
             families = iconic.children
             cname = f' - {iconic.common_name}' if iconic.common_name \
@@ -878,6 +887,9 @@ if __name__ == '__main__':
     parser.add_argument('--login_names', action="store_true",
                         help='Show login name instead of numeric observation '
                         'id in table of observations.')
+    parser.add_argument('--month', action="store_true",
+                        help='Show only observations from this month and the '
+                        'previous and next months.')
     args = parser.parse_args()
 
     for gpxFile in args.gpx_file:
@@ -895,7 +907,8 @@ if __name__ == '__main__':
         # well as a guess for the place name
         iconic_taxa, place_name = getObservations(bbox, bufferPolygon,
                                                   args.iconic_taxon,
-                                                  args.quality_grade, trails)
+                                                  args.quality_grade,
+                                                  args.month, trails)
 
         # write waypoints for offline mapping app OsmAnd on iPhone and Android
         writeWaypoints(iconic_taxa, args.iconic_taxon, args.quality_grade,
@@ -903,7 +916,7 @@ if __name__ == '__main__':
 
         # write html table of observations and the trails they are on
         writeTable(iconic_taxa, args.iconic_taxon, args.quality_grade,
-                   place_name, args.login_names)
+                   args.month, place_name, args.login_names)
 
         # write html with observations on an interactive map
         file_name = os.path.join(output_directory,
