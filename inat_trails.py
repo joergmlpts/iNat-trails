@@ -684,7 +684,7 @@ def getMap(bbox, iconic_taxa, lineStrings, bufferPolygon):
                             tooltip='buffer polygon').add_to(m)
 
     # show the route (.gpx tracks)
-    for lineString in lineStrings:
+    for lineString in lineStrings.geoms:
         folium.PolyLine(locations=[(coord[1],coord[0]) # folium uses (lat, lon)
                                    for coord in lineString.coords],
                         tooltip='gps track',
