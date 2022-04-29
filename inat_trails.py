@@ -96,20 +96,8 @@ class iNaturalistAPI:
                        'User-Agent'   : 'github.com/joergmlpts/iNat-trails' }
 
     def __init__(self):
-        self.session = None
-        self.loop = asyncio.get_event_loop()
-        self.loop.run_until_complete(self.clientSession())
         self.callTimes = []
         self.initCommand()
-
-    def __del__(self):
-        self.loop.run_until_complete(self.closeSession())
-
-    async def clientSession(self):
-        self.session = aiohttp.ClientSession()
-
-    async def closeSession(self):
-        await self.session.close();
 
     def initCommand(self):
         self.url = 'https://api.inaturalist.org/v1/'
@@ -132,36 +120,46 @@ class iNaturalistAPI:
         for k, v in changes:
             params[k] = v
 
+    async def get_all_observations_async(self, params):
+        await self.api_call('observations', **params)
+
     def get_all_observations(self, **params):
         self.tweakTypes(params)
         self.initCommand()
         params['per_page'] = self.PER_PAGE
         params['page'] = 1
-        self.loop.run_until_complete(self.api_call('observations', **params))
+        asyncio.run(self.get_all_observations_async(params))
         return self.getResults()
 
-    def get_taxa_by_id(self, ids):
+    async def get_taxa_by_id_async(self, ids):
         MAX_TAXA = 30
-        self.initCommand()
         splitIds = []
         while len(ids) > MAX_TAXA:
             splitIds.append(ids[:MAX_TAXA])
             ids = ids[MAX_TAXA:]
         splitIds.append(ids)
-        self.loop.run_until_complete(self.gather(
-            [self.api_call('taxa/' + ','.join(idList)) for idList in splitIds]))
+        tasks = [self.api_call('taxa/' + ','.join(idList))
+                 for idList in splitIds]
+        await asyncio.gather(*tasks)
+
+    def get_taxa_by_id(self, ids):
+        self.initCommand()
+        asyncio.run(self.get_taxa_by_id_async(ids))
         return self.getResults()
 
-    async def gather(self, cmdList):
-        await asyncio.gather(*cmdList)
+    async def get_places_nearby_async(self, params):
+        await self.api_call('places/nearby', **params)
 
     def get_places_nearby(self, **params):
         self.tweakTypes(params)
         self.initCommand()
         params['per_page'] = self.PER_PAGE
         params['page'] = 1
-        self.loop.run_until_complete(self.api_call('places/nearby', **params))
+        asyncio.run(self.get_places_nearby_async(params))
         return self.getResults()
+
+    async def get_overpass_async(self, query):
+        await self.api_call('', data=query)
 
     # We use this class to download OpenStreetMap data as well.
     def get_overpass(self, query):
@@ -169,7 +167,7 @@ class iNaturalistAPI:
         self.url = 'http://overpass-api.de/api/interpreter'
         iNatCallTimes = self.callTimes
         self.callTimes = []
-        self.loop.run_until_complete(self.api_call('', data=query))
+        asyncio.run(self.get_overpass_async(query))
         self.callTimes = iNatCallTimes
         return self.getResults()
 
@@ -185,38 +183,39 @@ class iNaturalistAPI:
 
     async def api_call(self, cmd, **params):
         await self.throttleCalls()
-        async with self.session.get(self.url + cmd, headers=self.HEADERS,
-                                    params=params) as response:
-            data = await response.json()
+        async with aiohttp.ClientSession() as session:
+            async with session.get(self.url + cmd, headers=self.HEADERS,
+                                   params=params) as response:
+                data = await response.json()
 
-            if 'error' in data and 'status' in data:
-                print(f"API Error (cmd '{cmd}', params '{params}') status "
-                      f"{data['status']}: {data['error']}.", file=sys.stderr)
-                return
+                if 'error' in data and 'status' in data:
+                    print(f"API Error (cmd '{cmd}', params '{params}') status "
+                          f"{data['status']}: {data['error']}.", file=sys.stderr)
+                    return
 
-            if 'results' in data:
-                if isinstance(data['results'], list):
-                    self.results += data['results']
+                if 'results' in data:
+                    if isinstance(data['results'], list):
+                        self.results += data['results']
+                    else:
+                        assert self.results == []
+                        self.results = data['results']
                 else:
-                    assert self.results == []
-                    self.results = data['results']
-            else:
-                self.results = data
+                    self.results = data
 
-            if 'page' in params and (data['page'] == self.MAX_PAGE or
-                      (data['page'] == 1 and 'id_below' not in params)):
-                downloaded = data['per_page'] * params['page']
-                if data['total_results'] > downloaded:
-                    params['id_below'] = data['results'][-1]['id']
-                    max_page =  min(self.MAX_PAGE,
-                                    math.ceil((data['total_results'] -
-                                               downloaded) /
-                                              data['per_page']))
-                    requests = []
-                    for page in range(1, max_page+1):
-                        params['page'] = page
-                        requests.append(self.api_call(cmd, **params))
-                    await asyncio.gather(*requests)
+                if 'page' in params and (data['page'] == self.MAX_PAGE or
+                          (data['page'] == 1 and 'id_below' not in params)):
+                    downloaded = data['per_page'] * params['page']
+                    if data['total_results'] > downloaded:
+                        params['id_below'] = data['results'][-1]['id']
+                        max_page =  min(self.MAX_PAGE,
+                                        math.ceil((data['total_results'] -
+                                                   downloaded) /
+                                                  data['per_page']))
+                        requests = []
+                        for page in range(1, max_page+1):
+                            params['page'] = page
+                            requests.append(self.api_call(cmd, **params))
+                        await asyncio.gather(*requests)
 
 api = iNaturalistAPI()
 
