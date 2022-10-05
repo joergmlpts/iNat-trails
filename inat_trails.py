@@ -8,7 +8,7 @@ from shapely import strtree
 import folium   # on Ubuntu install with: pip3 install folium
 
 ACCURACY        = 25      # in meters; skip less accurate observations
-BUFFER_DISTANCE = 0.0001  # buffer distance for polygon around trails
+BUFFER_DISTANCE = 0.0002  # buffer distance for polygon around trails
 TRACK_COLOR     = 'red'   # gps tracks are shown in red
 
 SHOW_BUFFER     = False   # show buffer polygon; enable for debugging
@@ -220,28 +220,30 @@ class iNaturalistAPI:
 api = iNaturalistAPI()
 
 
-#########################################################################
-# Reads tracks from gpx file, returns MultiLineString and bounding box. #
-#########################################################################
+##########################################################################
+# Reads tracks from gpx files, returns MultiLineString and bounding box. #
+##########################################################################
 
-def readGpx(file_name):
+def readGpx(file_names):
     trksegs = []
-    with open(file_name, 'rt', encoding='utf8') as file:
-        for child in ElementTree.parse(file).getroot():
-            tag = getTag(child.tag)
-            if tag == 'trk':
-                for trk_child in child:
-                    tag = getTag(trk_child.tag)
-                    if tag == 'trkseg':
-                        trkseg = []
-                        for trkseg_child in trk_child:
-                            tag = getTag(trkseg_child.tag)
-                            if tag == 'trkpt':
-                                trkseg.\
-                                  append((float(trkseg_child.attrib['lon']),
-                                          float(trkseg_child.attrib['lat'])))
-                        if trkseg:
-                            trksegs.append(trkseg)
+    for fn in file_names:
+        with open(fn, 'rt', encoding='utf8') as file:
+            print(f"Reading '{fn}'...")
+            for child in ElementTree.parse(file).getroot():
+                tag = getTag(child.tag)
+                if tag == 'trk':
+                    for trk_child in child:
+                        tag = getTag(trk_child.tag)
+                        if tag == 'trkseg':
+                            trkseg = []
+                            for trkseg_child in trk_child:
+                                tag = getTag(trkseg_child.tag)
+                                if tag == 'trkpt':
+                                    trkseg.\
+                                     append((float(trkseg_child.attrib['lon']),
+                                             float(trkseg_child.attrib['lat'])))
+                            if trkseg:
+                                trksegs.append(trkseg)
     min_x = min_y = 180
     max_x = max_y = -180
     lineStrings = []
@@ -891,37 +893,35 @@ if __name__ == '__main__':
                         'previous and next months.')
     args = parser.parse_args()
 
-    for gpxFile in args.gpx_file:
-        # read tracks and bounding box from .gpx file
-        print(f"Reading '{gpxFile}'...")
-        lineStrings, bbox = readGpx(gpxFile)
+    # read tracks and bounding box from .gpx files
+    lineStrings, bbox = readGpx(args.gpx_file)
 
-        # compute buffer polygons around tracks
-        bufferPolygon = lineStrings.buffer(BUFFER_DISTANCE)
+    # compute buffer polygons around tracks
+    bufferPolygon = lineStrings.buffer(BUFFER_DISTANCE)
 
-        # get trails and roads in buffer polygon
-        trails = Trails(bbox, bufferPolygon)
+    # get trails and roads in buffer polygon
+    trails = Trails(bbox, bufferPolygon)
 
-        # get observations in the buffer polygon and their taxa as
-        # well as a guess for the place name
-        iconic_taxa, place_name = getObservations(bbox, bufferPolygon,
-                                                  args.iconic_taxon,
-                                                  args.quality_grade,
-                                                  args.month, trails)
+    # get observations in the buffer polygon and their taxa as
+    # well as a guess for the place name
+    iconic_taxa, place_name = getObservations(bbox, bufferPolygon,
+                                              args.iconic_taxon,
+                                              args.quality_grade,
+                                              args.month, trails)
 
-        # write waypoints for offline mapping app OsmAnd on iPhone and Android
-        writeWaypoints(iconic_taxa, args.iconic_taxon, args.quality_grade,
-                       place_name)
+    # write waypoints for offline mapping app OsmAnd on iPhone and Android
+    writeWaypoints(iconic_taxa, args.iconic_taxon, args.quality_grade,
+                   place_name)
 
-        # write html table of observations and the trails they are on
-        writeTable(iconic_taxa, args.iconic_taxon, args.quality_grade,
-                   args.month, place_name, args.login_names)
+    # write html table of observations and the trails they are on
+    writeTable(iconic_taxa, args.iconic_taxon, args.quality_grade,
+               args.month, place_name, args.login_names)
 
-        # write html with observations on an interactive map
-        file_name = os.path.join(output_directory,
-                                 f'{place_name}_{args.iconic_taxon}_'
-                                 f'{args.quality_grade}_'
-                                 f'mapped_observations.html')
-        getMap(bbox, iconic_taxa, lineStrings, bufferPolygon).save(file_name)
-        print(f"Map written to '{file_name}'.")
-        webbrowser.open(file_name)
+    # write html with observations on an interactive map
+    file_name = os.path.join(output_directory,
+                             f'{place_name}_{args.iconic_taxon}_'
+                             f'{args.quality_grade}_'
+                             f'mapped_observations.html')
+    getMap(bbox, iconic_taxa, lineStrings, bufferPolygon).save(file_name)
+    print(f"Map written to '{file_name}'.")
+    webbrowser.open(file_name)
