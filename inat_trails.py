@@ -15,6 +15,37 @@ SHOW_BUFFER     = False   # show buffer polygon; enable for debugging
 BUFFER_COLOR    = 'green' # buffer polygon around tracks is shown in green
 
 
+#
+# In API v2 we specify the fields that we need returned.
+#
+
+FIELDS_TAXA = { 'id' : True,
+                'name' : True,
+                'rank' : True,
+                'preferred_common_name' : True,
+                'default_photo' : {
+                    'square_url' : True
+                },
+                'iconic_taxon_name' : True }
+
+FIELDS_TAXA_WITH_STATUS = FIELDS_TAXA.copy()
+FIELDS_TAXA_WITH_STATUS['listed_taxa'] = { 'taxon_id' : True,
+                                           'place' : { 'id' : True },
+                                           'establishment_means' : True }
+FIELDS_TAXA_WITH_STATUS['conservation_statuses'] = { 'taxon_id' : True,
+                                                     'place' : { 'id' : True },
+                                                     'status' : True }
+FIELDS_TAXA_WITH_ANCESTORS = FIELDS_TAXA_WITH_STATUS.copy()
+FIELDS_TAXA_WITH_ANCESTORS['ancestors'] = FIELDS_TAXA
+
+FIELDS_OBSERVATION = { 'id' : True,
+                       'user' : { 'login' : True, 'name' : True },
+                       'location' : True, 'obscured' : True,
+                       'public_positional_accuracy' : True,
+                       'observed_on' : True, 'quality_grade' : True,
+                       'taxon' : FIELDS_TAXA_WITH_STATUS }
+
+
 ############################################################
 # Cache for downloaded iNaturalist and OpenStreetMap data. #
 ############################################################
@@ -91,6 +122,8 @@ class iNaturalistAPI:
     CALL_LIMIT     =    60     # max calls / minute
     PER_PAGE       =   200     # request 200 items in a single call
     DOWNLOAD_LIMIT = 10000     # at most 10,000 observations can be obtained
+    API_V1         = 'https://api.inaturalist.org/v1/' # for places/nearby
+    API_V2         = 'https://api.inaturalist.org/v2/'
     MAX_PAGE       = DOWNLOAD_LIMIT // PER_PAGE
     HEADERS        = { 'Content-Type' : 'application/json',
                        'User-Agent'   : 'github.com/joergmlpts/iNat-trails' }
@@ -100,7 +133,7 @@ class iNaturalistAPI:
         self.initCommand()
 
     def initCommand(self):
-        self.url = 'https://api.inaturalist.org/v1/'
+        self.url = self.API_V2
         self.results = []
 
     def getResults(self):
@@ -108,51 +141,38 @@ class iNaturalistAPI:
             self.results.sort(key=lambda r:r['id'])
         return self.results
 
-    def tweakTypes(self, params):
-        changes = []
-        for k, v in params.items():
-            if isinstance(v, list):
-                changes.append((k, ','.join(v)))
-            elif isinstance(v, bool):
-                changes.append((k, 'true' if v else 'false'))
-            elif not isinstance(v, str) and not isinstance(v, int):
-                changes.append((k, str(v)))
-        for k, v in changes:
-            params[k] = v
-
     async def get_all_observations_async(self, params):
         await self.api_call('observations', **params)
 
     def get_all_observations(self, **params):
-        self.tweakTypes(params)
         self.initCommand()
         params['per_page'] = self.PER_PAGE
         params['page'] = 1
         asyncio.run(self.get_all_observations_async(params))
         return self.getResults()
 
-    async def get_taxa_by_id_async(self, ids):
+    async def get_taxa_by_id_async(self, ids, params):
         MAX_TAXA = 30
         splitIds = []
         while len(ids) > MAX_TAXA:
             splitIds.append(ids[:MAX_TAXA])
             ids = ids[MAX_TAXA:]
         splitIds.append(ids)
-        tasks = [self.api_call('taxa/' + ','.join(idList))
+        tasks = [self.api_call('taxa/' + ','.join(idList), **params)
                  for idList in splitIds]
         await asyncio.gather(*tasks)
 
-    def get_taxa_by_id(self, ids):
+    def get_taxa_by_id(self, ids, **params):
         self.initCommand()
-        asyncio.run(self.get_taxa_by_id_async(ids))
+        asyncio.run(self.get_taxa_by_id_async(ids, params))
         return self.getResults()
 
     async def get_places_nearby_async(self, params):
         await self.api_call('places/nearby', **params)
 
     def get_places_nearby(self, **params):
-        self.tweakTypes(params)
         self.initCommand()
+        self.url = self.API_V1
         params['per_page'] = self.PER_PAGE
         params['page'] = 1
         asyncio.run(self.get_places_nearby_async(params))
@@ -184,38 +204,53 @@ class iNaturalistAPI:
     async def api_call(self, cmd, **params):
         await self.throttleCalls()
         async with aiohttp.ClientSession() as session:
-            async with session.get(self.url + cmd, headers=self.HEADERS,
-                                   params=params) as response:
-                data = await response.json()
-
-                if 'error' in data and 'status' in data:
-                    print(f"API Error (cmd '{cmd}', params '{params}') status "
-                          f"{data['status']}: {data['error']}.", file=sys.stderr)
-                    return
-
-                if 'results' in data:
-                    if isinstance(data['results'], list):
-                        self.results += data['results']
+            if self.url == self.API_V2:
+                assert 'fields' in params
+                headers = self.HEADERS.copy()
+                headers['X-HTTP-Method-Override'] = 'GET'
+                async with session.post(self.url + cmd, headers=headers,
+                                        json=params) as response:
+                    data = await response.json()
+            else:
+                async with session.get(self.url + cmd, headers=self.HEADERS,
+                                       params=params) as response:
+                    if 'application/json' in response.headers['content-type']:
+                        data = await response.json()
                     else:
-                        assert self.results == []
-                        self.results = data['results']
-                else:
-                    self.results = data
+                        # Overpass occasionally sends non-json error messages
+                        self.results = await response.text()
+                        print(self.results)
+                        return
 
-                if 'page' in params and (data['page'] == self.MAX_PAGE or
-                          (data['page'] == 1 and 'id_below' not in params)):
-                    downloaded = data['per_page'] * params['page']
-                    if data['total_results'] > downloaded:
-                        params['id_below'] = data['results'][-1]['id']
-                        max_page =  min(self.MAX_PAGE,
-                                        math.ceil((data['total_results'] -
-                                                   downloaded) /
-                                                  data['per_page']))
-                        requests = []
-                        for page in range(1, max_page+1):
-                            params['page'] = page
-                            requests.append(self.api_call(cmd, **params))
-                        await asyncio.gather(*requests)
+        if 'errors' in data and 'status' in data:
+            print(f"API Error (cmd '{cmd}', params '{params}') status "
+                  f"{data['status']}: {data['errors']}.",
+                  file=sys.stderr)
+            return
+
+        if 'results' in data:
+            if isinstance(data['results'], list):
+                self.results += data['results']
+            else:
+                assert self.results == []
+                self.results = data['results']
+        else:
+            self.results = data
+
+        if 'page' in params and (data['page'] == self.MAX_PAGE or
+                            (data['page'] == 1 and 'id_below' not in params)):
+            downloaded = data['per_page'] * params['page']
+            if data['total_results'] > downloaded:
+                params['id_below'] = data['results'][-1]['id']
+                max_page =  min(self.MAX_PAGE,
+                                math.ceil((data['total_results'] -
+                                           downloaded) /
+                                          data['per_page']))
+                requests = []
+                for page in range(1, max_page+1):
+                    params['page'] = page
+                    requests.append(self.api_call(cmd, **params))
+                await asyncio.gather(*requests)
 
 api = iNaturalistAPI()
 
@@ -466,6 +501,7 @@ def getObservations(bbox, bufferPolygon, iconic_taxa, quality_grade, month,
         observations = readJson(file_name)
     else:
         observations = api.get_all_observations(
+            fields               = FIELDS_OBSERVATION,
             captive              = False,
             identified           = True,
             geoprivacy           = 'open',
@@ -572,7 +608,8 @@ def ancestorInfo(bbox, observations, bufferPolygon):
     # load uncached taxa from iNaturalist
     if len(lookup_ids):
         print(f'{len(lookup_ids)} uncached taxa to download...')
-        results = api.get_taxa_by_id(lookup_ids)
+        results = api.get_taxa_by_id(lookup_ids,
+                                     fields=FIELDS_TAXA_WITH_ANCESTORS)
 
         # insert taxa into cache
         for taxon in results:
