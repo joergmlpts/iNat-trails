@@ -19,31 +19,19 @@ BUFFER_COLOR    = 'green' # buffer polygon around tracks is shown in green
 # In API v2 we specify the fields that we need returned.
 #
 
-FIELDS_TAXA = { 'id' : True,
-                'name' : True,
-                'rank' : True,
-                'preferred_common_name' : True,
-                'default_photo' : {
-                    'square_url' : True
-                },
-                'iconic_taxon_name' : True }
+FIELDS_TAXA = '(id:!t,name:!t,rank:!t,preferred_common_name:!t,'\
+               'default_photo:(square_url:!t),iconic_taxon_name:!t)'
+FIELDS_TAXA_WITH_STATUS = FIELDS_TAXA[:-1] + ',' \
+                          'listed_taxa:(taxon_id:!t,place:(id:!t),'\
+                                       'establishment_means:!t),'\
+                          'conservation_statuses:(taxon_id:!t,place:(id:!t),'\
+                                                 'status:!t))'
+FIELDS_TAXA_WITH_ANCESTORS = FIELDS_TAXA_WITH_STATUS[:-1] + ',' \
+                             f'ancestors:{FIELDS_TAXA})'
 
-FIELDS_TAXA_WITH_STATUS = FIELDS_TAXA.copy()
-FIELDS_TAXA_WITH_STATUS['listed_taxa'] = { 'taxon_id' : True,
-                                           'place' : { 'id' : True },
-                                           'establishment_means' : True }
-FIELDS_TAXA_WITH_STATUS['conservation_statuses'] = { 'taxon_id' : True,
-                                                     'place' : { 'id' : True },
-                                                     'status' : True }
-FIELDS_TAXA_WITH_ANCESTORS = FIELDS_TAXA_WITH_STATUS.copy()
-FIELDS_TAXA_WITH_ANCESTORS['ancestors'] = FIELDS_TAXA
-
-FIELDS_OBSERVATION = { 'id' : True,
-                       'user' : { 'login' : True, 'name' : True },
-                       'location' : True, 'obscured' : True,
-                       'public_positional_accuracy' : True,
-                       'observed_on' : True, 'quality_grade' : True,
-                       'taxon' : FIELDS_TAXA_WITH_STATUS }
+FIELDS_OBSERVATION = '(id:!t,user:(login:!t,name:!t),location:!t,obscured:!t,'\
+                      'public_positional_accuracy:!t,observed_on:!t,'\
+                     f'quality_grade:!t,taxon:{FIELDS_TAXA_WITH_STATUS})'
 
 
 ############################################################
@@ -206,10 +194,8 @@ class iNaturalistAPI:
         async with aiohttp.ClientSession() as session:
             if self.url == self.API_V2:
                 assert 'fields' in params
-                headers = self.HEADERS.copy()
-                headers['X-HTTP-Method-Override'] = 'GET'
-                async with session.post(self.url + cmd, headers=headers,
-                                        json=params) as response:
+                async with session.get(self.url + cmd, headers=self.HEADERS,
+                                       params=params) as response:
                     data = await response.json()
             else:
                 async with session.get(self.url + cmd, headers=self.HEADERS,
@@ -502,8 +488,8 @@ def getObservations(bbox, bufferPolygon, iconic_taxa, quality_grade, month,
     else:
         observations = api.get_all_observations(
             fields               = FIELDS_OBSERVATION,
-            captive              = False,
-            identified           = True,
+            captive              = 'false',
+            identified           = 'true',
             geoprivacy           = 'open',
             acc_below_or_unknown = ACCURACY,
             hrank                = 'species',
