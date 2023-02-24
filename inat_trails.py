@@ -880,13 +880,14 @@ if __name__ == '__main__':
                     return fn
             except:
                 pass
-        raise ValueError(f"File '{fn}' cannot be read.")
+        raise argparse.ArgumentTypeError(f"File '{fn}' cannot be read.")
 
     def qualityGrade(quality):
         arg = quality.lower()
         if arg == 'all' or arg in quality_grades:
             return arg
-        raise ValueError(f"Quality-grade '{quality}' not supported.")
+        raise argparse.ArgumentTypeError(f"Quality-grade '{quality}' "
+                                         "not supported.")
 
     def iconicTaxa(iconic):
         if len(iconic) >= 2:
@@ -895,7 +896,8 @@ if __name__ == '__main__':
                 return 'all'
             elif arg in iconic_taxa2color:
                 return arg
-        raise ValueError(f"Iconic taxon '{iconic}' not supported.")
+        raise argparse.ArgumentTypeError(f"Iconic taxon '{iconic}' "
+                                         "not supported.")
 
     parser = argparse.ArgumentParser()
     parser.add_argument('gpx_file', type=fileName, nargs='+',
