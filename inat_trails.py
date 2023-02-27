@@ -248,43 +248,29 @@ api = iNaturalistAPI()
 def readGpx(file_names):
     trksegs = []
     for fn in file_names:
-        with open(fn, 'rt', encoding='utf8') as file:
-            print(f"Reading '{fn}'...")
-            for child in ElementTree.parse(file).getroot():
-                tag = getTag(child.tag)
-                if tag == 'trk':
-                    for trk_child in child:
-                        tag = getTag(trk_child.tag)
-                        if tag == 'trkseg':
-                            trkseg = []
-                            for trkseg_child in trk_child:
-                                tag = getTag(trkseg_child.tag)
-                                if tag == 'trkpt':
-                                    trkseg.\
-                                     append((float(trkseg_child.attrib['lon']),
-                                             float(trkseg_child.attrib['lat'])))
-                            if trkseg:
-                                trksegs.append(trkseg)
+        print(f"Reading '{fn}'...")
+        root = ElementTree.parse(fn).getroot()
+        assert root.tag.endswith('gpx')
+        namespace = root.tag[:-3]
+        for trkseg in root.iter(f'{namespace}trkseg'):
+            seg = [(float(trkpt.attrib['lon']), float(trkpt.attrib['lat']))
+                   for trkpt in trkseg.findall(f'{namespace}trkpt')]
+            if len(seg) > 1:
+                trksegs.append(seg)
     min_x = min_y = 180
     max_x = max_y = -180
     lineStrings = []
     for track in trksegs:
-        if len(track) > 1:
-            x = [coord[0] for coord in track]
-            min_x = min(min_x, min(x))
-            max_x = max(max_x, max(x))
-            y = [coord[1] for coord in track]
-            min_y = min(min_y, min(y))
-            max_y = max(max_y, max(y))
-            lineStrings.append(LineString(track))
+        x = [coord[0] for coord in track]
+        min_x = min(min_x, min(x))
+        max_x = max(max_x, max(x))
+        y = [coord[1] for coord in track]
+        min_y = min(min_y, min(y))
+        max_y = max(max_y, max(y))
+        lineStrings.append(LineString(track))
     ε = 1e-7 # bbox must not degenerate to line or point
     return MultiLineString(lineStrings), ((min_x-ε, min_y-ε),
                                           (max_x+ε, max_y+ε))
-
-# get tag without namespace
-def getTag(tag):
-    idx = tag.find('}')
-    return tag[idx+1:] if idx >= 0 else tag
 
 # Scale a bounding box to a given precision. Call with precision=100 to scale
 # to lat/lon precision of two decimals. Returns scaled bounding box.
