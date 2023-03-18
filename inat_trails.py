@@ -343,12 +343,14 @@ class Trails:
                 obj = MultiLineString(flat)
             objs.append(obj)
             self.obj2name[id(obj)] = name
-        self.STRtree = strtree.STRtree(objs)
+        self.STRtree = strtree.STRtree(objs) if objs else None
         print(f'Loaded {len(ways)} named roads and trails: '
               f"{', '.join(sorted(ways))}.")
 
     # Return name of nearest trails to (lat, lon) or None.
     def nearestTrail(self, lat, lon):
+        if self.STRtree is None:
+            return None
         point = Point(lon, lat)
         nearest = self.STRtree.nearest(point)
         return self.obj2name[id(nearest)] \
