@@ -353,8 +353,8 @@ class Trails:
             return None
         point = Point(lon, lat)
         nearest = self.STRtree.nearest(point)
-        return self.obj2name[id(nearest)] \
-                   if nearest.distance(point) < 2 * BUFFER_DISTANCE else None
+   #     return self.obj2name[id(nearest)] \
+    #               if nearest.distance(point) < 2 * BUFFER_DISTANCE else None
 
 
 ############################
