@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ElementTree
 
 import aiohttp  # on Ubuntu install with: sudo apt install --yes python3-aiohttp
 from shapely.geometry import shape, Point, LineString, MultiLineString, Polygon, MultiPolygon   # on Ubuntu install with: sudo apt install --yes python3-shapely
+from shapely.geometry.base import BaseGeometry
 from shapely import strtree
 import folium   # on Ubuntu install with: pip3 install folium
 
@@ -326,7 +327,7 @@ class Trails:
                             ways[name] = []
                         ways[name].append(lineString.
                                           intersection(bufferPolygon))
-        objs = []
+        self.objs = []
         self.obj2name = {}
         for name in sorted(ways):
             lineStringList = ways[name]
@@ -341,9 +342,9 @@ class Trails:
                         assert l.geom_type == 'MultiLineString'
                         flat += l.geoms
                 obj = MultiLineString(flat)
-            objs.append(obj)
+            self.objs.append(obj)
             self.obj2name[id(obj)] = name
-        self.STRtree = strtree.STRtree(objs) if objs else None
+        self.STRtree = strtree.STRtree(self.objs) if self.objs else None
         print(f'Loaded {len(ways)} named roads and trails: '
               f"{', '.join(sorted(ways))}.")
 
@@ -353,6 +354,9 @@ class Trails:
             return None
         point = Point(lon, lat)
         nearest = self.STRtree.nearest(point)
+        if not isinstance(nearest, BaseGeometry): # pull request #1
+            assert nearest < len(self.objs)
+            nearest = self.objs[nearest]
         return self.obj2name[id(nearest)] \
                    if nearest.distance(point) < 2 * BUFFER_DISTANCE else None
 
