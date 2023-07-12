@@ -816,7 +816,7 @@ def writeTable(iconic_taxa, iconic_taxa_arg, quality_grade, month,
                                           f'{place_filename}_{iconic_taxa_arg}_'
                                           f'{quality_grade}_observations.html')
 
-    with open(observations_file_name, 'w', encoding='utf-8') as f:
+    with open(observations_file_name, 'wt', encoding='utf-8') as f:
         print('<html>', file=f)
         print(f'<h1>{quality_grade[0].upper()}{quality_grade[1:].lower()}'
               f'-grade Observations from {place_name} on iNaturalist</h1>',
@@ -885,7 +885,7 @@ def writeWaypoints(iconic_taxa, iconic_taxa_arg, quality_grade, place_name):
     place_filename = place_name.replace(' ', '_').replace('/', '_')
     file_name = os.path.join(output_directory, f'{place_filename}_'
                              f'{iconic_taxa_arg}_{quality_grade}_waypoints.gpx')
-    with open(file_name, 'w', encoding='utf-8') as f:
+    with open(file_name, 'wt', encoding='utf-8') as f:
         print("<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>",
               file=f)
         print('<gpx version="1.1" creator="OsmAnd 3.9.10"',
