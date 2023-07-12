@@ -8,6 +8,9 @@ from shapely.geometry.base import BaseGeometry
 from shapely import strtree
 import folium   # on Ubuntu install with: pip3 install folium
 
+from dataclasses import dataclass
+from typing import Union, Dict, List, Set, Optional
+
 ACCURACY        = 25      # in meters; skip less accurate observations
 BUFFER_DISTANCE = 0.0002  # buffer distance for polygon around trails
 TRACK_COLOR     = 'red'   # gps tracks are shown in red
@@ -69,8 +72,9 @@ if os.path.exists(cache_directory):
         if delete:
             try:
                 os.remove(fullPath)
-            except:
-                pass
+            except Exception as e:
+                print(f"Could not delete expired cache '{fullPath}': {e}.",
+                      file=sys.stderr)
 else:
     os.makedirs(cache_directory)
 
@@ -165,6 +169,19 @@ class iNaturalistAPI:
         params['per_page'] = self.PER_PAGE
         params['page'] = 1
         asyncio.run(self.get_places_nearby_async(params))
+        return self.getResults()
+
+    async def get_places_by_id_async(self, id: Union[int, str, Set[int]],
+                                     params: Dict[str, int]):
+        if isinstance(id, set):
+            id = ','.join([str(i) for i in id])
+        await self.api_call(f'places/{id}')
+
+    def get_places_by_id(self, id: Union[int, Set[int]]):
+        self.initCommand()
+        self.url = self.API_V1
+        params = { 'per_page': self.PER_PAGE, 'page': 1 }
+        asyncio.run(self.get_places_by_id_async(id, params))
         return self.getResults()
 
     async def get_overpass_async(self, query):
@@ -383,6 +400,19 @@ iconic_taxa2color = { 'Actinopterygii' : 'blue',
                       'Protozoa'       : 'purple',
                       'Reptilia'       : 'blue' }
 
+@dataclass
+class Place:
+    id                : int
+    name              : str
+    bbox_area         : float
+    geometry_geojson  : dict
+    ancestor_place_ids: List[int]
+
+@dataclass
+class Status:
+    means: str             # establishment means like "native" or "introduced"
+    place: Union[int,str]  # place name or numeric place id
+
 # iNaturalist observation
 class Observation:
 
@@ -533,7 +563,7 @@ def getObservations(bbox, bufferPolygon, iconic_taxa, quality_grade, month,
     taxa.sort(key=lambda t:t.name)
     return ancestorInfo(bbox, taxa, bufferPolygon)
 
-def getPlaces(bbox, bufferPolygon):
+def getPlacesNearby(bbox, bufferPolygon):
     ((min_lon, min_lat), (max_lon, max_lat)) = scale_bbox(bbox, 1000)
     places_file = os.path.join(cache_directory,
                                f'places_{min_lon:.3f}_{min_lat:.3f}_'
@@ -545,24 +575,46 @@ def getPlaces(bbox, bufferPolygon):
                                        swlng = min_lon, swlat = min_lat)
         writeJson(places_file, places)
 
-    places = [(place['id'], place['name'], place['bbox_area'],
-               place['geometry_geojson'])
+    places = [ Place(place['id'], place['name'], place['bbox_area'],
+                     place['geometry_geojson'],
+                     [] if place['ancestor_place_ids'] is None
+                        else place['ancestor_place_ids'])
               for kind in ['standard', 'community']
               for place in places[kind]
-              if shape(place['geometry_geojson']).intersects(bufferPolygon)]
-    places.sort(key=lambda e:e[2])
+              if shape(place['geometry_geojson']).intersects(bufferPolygon) ]
+    places.sort(key=lambda p:p.bbox_area)
+    return places
+
+def getPlacesById(id: Union[int, Set[int]]):
+    places_file = os.path.join(cache_directory,
+                               f'places_{sorted(id)}.json.gz'
+                               if isinstance(id, set)
+                               else f'places_{id}.json.gz')
+    if os.path.exists(places_file):
+        places = readJson(places_file)
+    else:
+        places = api.get_places_by_id(id)
+        writeJson(places_file, places)
+
+    places = [ Place(place['id'],
+                     place['display_name'] if 'display_name' in place
+                                           else place['name'],
+                     place['bbox_area'], place['geometry_geojson'],
+                     [] if place['ancestor_place_ids'] is None
+                        else place['ancestor_place_ids']) for place in places ]
+    places.sort(key=lambda e:e.bbox_area)
     return places
 
 def listedTaxa(taxon, places):
     for place in places:
         for status in taxon['conservation_statuses']:
             if status['place'] is not None:
-                if status['place']['id'] == place[0]:
-                    return (status['status'], place[1])
+                if status['place']['id'] in [place.id] + place.ancestor_place_ids:
+                    return Status(status['status'], status['place']['id'])
         for lst in taxon['listed_taxa']:
             assert lst['taxon_id'] == taxon['id']
-            if lst['place']['id'] == place[0]:
-                return (lst['establishment_means'], place[1])
+            if lst['place']['id'] in [place.id] + place.ancestor_place_ids:
+                return Status(lst['establishment_means'], lst['place']['id'])
 
 # augment observations with ancestor info: iconic taxon, and family
 def ancestorInfo(bbox, observations, bufferPolygon):
@@ -597,7 +649,7 @@ def ancestorInfo(bbox, observations, bufferPolygon):
     if len(taxon_by_id) != taxon_by_id_initial_size:
         writeJson(taxa_file, taxon_by_id)
 
-    places = getPlaces(bbox, bufferPolygon)
+    places = getPlacesNearby(bbox, bufferPolygon)
 
     iconic2families = {}
     iconic2taxa = {}
@@ -627,15 +679,29 @@ def ancestorInfo(bbox, observations, bufferPolygon):
                                        key=lambda t:t.name)
         iconic_taxa.append(iconic_taxon)
 
+    # For all taxa, replace place id with place name.
+    place_id2name = { pl.id : pl.name for pl in places }
+    lookup_places = set([t.status.place for i in iconic_taxa
+                         for f in i.children for t in f.children.values()
+                         if t.status is not None
+                         if t.status.place not in place_id2name])
+    if len(lookup_places) > 0:
+        for pl in getPlacesById(lookup_places):
+            place_id2name[pl.id] = pl.name
+    for iconic_taxon in iconic_taxa:
+        for family in iconic_taxon.children:
+            for taxon in family.children.values():
+                if taxon.status is not None:
+                    taxon.status.place = place_id2name[taxon.status.place]
+
     place_guess = None
     for place in places:
-        if shape(place[3]).intersection(bufferPolygon).area > \
+        if shape(place.geometry_geojson).intersection(bufferPolygon).area > \
            0.5 * bufferPolygon.area:
-            place_guess = place[1]
+            place_guess = place.name
             break
 
-    return iconic_taxa, 'Unknown Place' if place_guess is None else \
-                        place_guess.replace(' ', '_').replace('/', '_')
+    return iconic_taxa, 'Unknown Place' if place_guess is None else place_guess
 
 
 ######################
@@ -731,9 +797,9 @@ def getMap(bbox, iconic_taxa, lineStrings, bufferPolygon):
                         popup += f'<br/>accuracy&nbsp;{obs.accuracy:,}' \
                                   '&nbsp;meters'
                     if taxon.status is not None and \
-                       taxon.status[0] != 'native':
+                       taxon.status.means != 'native':
                         popup += '<br/><font color="red">' + \
-                                 taxon.status[0] + '</font>'
+                                 taxon.status.means + '</font>'
                     popup += '</td></tr></table>'
                     folium.Marker([obs.lat, obs.lon], popup=popup,
                                   icon=folium.Icon(color=color),
@@ -745,13 +811,13 @@ def getMap(bbox, iconic_taxa, lineStrings, bufferPolygon):
 # write html table of observations and the trails they are on
 def writeTable(iconic_taxa, iconic_taxa_arg, quality_grade, month,
                place_name, logins):
+    place_filename = place_name.replace(' ', '_').replace('/', '_')
     observations_file_name = os.path.join(output_directory,
-                                          f'{place_name}_{iconic_taxa_arg}_'
+                                          f'{place_filename}_{iconic_taxa_arg}_'
                                           f'{quality_grade}_observations.html')
 
     with open(observations_file_name, 'w', encoding='utf-8') as f:
         print('<html>', file=f)
-        place_name = place_name.replace('_', ' ')
         print(f'<h1>{quality_grade[0].upper()}{quality_grade[1:].lower()}'
               f'-grade Observations from {place_name} on iNaturalist</h1>',
               file=f)
@@ -779,7 +845,7 @@ def writeTable(iconic_taxa, iconic_taxa_arg, quality_grade, month,
                     name = taxon.html_name(with_common_name=False)
                     cname = taxon.common_name
                     if taxon.status is not None and \
-                       taxon.status[0] == 'introduced':
+                       taxon.status.means == 'introduced':
                         name = '<font color="red">' + name + '</font>'
                         cname = '<font color="red">' + cname + '</font>'
 
@@ -816,8 +882,9 @@ def writeTable(iconic_taxa, iconic_taxa_arg, quality_grade, month,
 
 # write waypoints for off-line mapping app OsmAnd on iPhone and Android
 def writeWaypoints(iconic_taxa, iconic_taxa_arg, quality_grade, place_name):
-    file_name = os.path.join(output_directory, f'{place_name}_{iconic_taxa_arg}'
-                             f'_{quality_grade}_waypoints.gpx')
+    place_filename = place_name.replace(' ', '_').replace('/', '_')
+    file_name = os.path.join(output_directory, f'{place_filename}_'
+                             f'{iconic_taxa_arg}_{quality_grade}_waypoints.gpx')
     with open(file_name, 'w', encoding='utf-8') as f:
         print("<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>",
               file=f)
@@ -935,8 +1002,9 @@ if __name__ == '__main__':
                args.month, place_name, args.login_names)
 
     # write html with observations on an interactive map
+    place_filename = place_name.replace(' ', '_').replace('/', '_')
     file_name = os.path.join(output_directory,
-                             f'{place_name}_{args.iconic_taxon}_'
+                             f'{place_filename}_{args.iconic_taxon}_'
                              f'{args.quality_grade}_'
                              f'mapped_observations.html')
     getMap(bbox, iconic_taxa, lineStrings, bufferPolygon).save(file_name)
