@@ -637,7 +637,8 @@ def ancestorInfo(bbox, observations, bufferPolygon):
 
     # load uncached taxa from iNaturalist
     if len(lookup_ids):
-        print(f'{len(lookup_ids)} uncached taxa to download...')
+        print(f'{len(lookup_ids)} uncached '
+              f'tax{"on" if len(lookup_ids) == 1 else "a"} to download...')
         results = api.get_taxa_by_id(lookup_ids,
                                      fields=FIELDS_TAXA_WITH_ANCESTORS)
 
