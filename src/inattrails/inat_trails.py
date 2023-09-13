@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-import asyncio, datetime, gzip, json, math, os, re, sys, time, webbrowser
+import argparse, asyncio, datetime, gzip, json, math, os, re, sys, time, \
+       webbrowser
 import xml.etree.ElementTree as ElementTree
 
 import aiohttp  # on Ubuntu install with: sudo apt install --yes python3-aiohttp
@@ -9,7 +10,7 @@ from shapely import strtree
 import folium   # on Ubuntu install with: pip3 install folium
 
 from dataclasses import dataclass
-from typing import Union, Dict, List, Set, Optional
+from typing import Union, Dict, List, Set, Tuple, Optional
 
 ACCURACY        = 25      # in meters; skip less accurate observations
 BUFFER_DISTANCE = 0.0002  # buffer distance for polygon around trails
@@ -80,11 +81,26 @@ else:
 
 if not os.path.exists(output_directory): os.makedirs(output_directory)
 
-def readJson(file_name):
+def readJson(file_name: str):
+    """
+    Read json data from file.
+
+    :param file_name: Name of file to read json data from.
+    :type file_name: str
+    :returns: json (list or dict)
+    """
     with gzip.open(file_name, 'rt', encoding='utf-8') as file:
         return json.load(file)
 
-def writeJson(file_name, data):
+def writeJson(file_name: str, data):
+    """
+    Write json data to file.
+
+    :param file_name: Name of file to write json data to.
+    :type file_name: str
+    :param data: json data
+    :type data: json (list or dict)
+    """
     def cleanup(exception):
         try:
             os.remove(file_name) # remove only partially written file
@@ -99,8 +115,8 @@ def writeJson(file_name, data):
     except Exception as e:
         cleanup(e)
 
-# used by writeJson() to convert type datetime.datetime to string
 def defaultHook(obj):
+    "Called by *writeJson()* to convert type *datetime.datetime* to string."
     if isinstance(obj, datetime.datetime):
         return obj.isoformat()
     raise TypeError(f'Unsupported type {obj} while writing json.')
@@ -111,6 +127,10 @@ def defaultHook(obj):
 ######################################################################
 
 class iNaturalistAPI:
+    """
+    This class issues iNaturalist API calls and overpass API calls
+    in parallel using asyncio.
+    """
 
     CALL_LIMIT     =    60     # max calls / minute
     PER_PAGE       =   200     # request 200 items in a single call
@@ -125,26 +145,59 @@ class iNaturalistAPI:
         self.callTimes = []
         self.initCommand()
 
-    def initCommand(self):
+    def initCommand(self) -> None:
+        """
+        Initalize for one API command. An single API command may request
+        multiple pages.
+        """
         self.url = self.API_V2
-        self.results = []
+        self.results: List[Dict[str, object]] = []
 
     def getResults(self):
+        """
+        Return result obtained by API command.
+
+        :returns: a string from the overpass API or a list of json results from iNaturalist.
+        """
         if isinstance(self.results, list):
             self.results.sort(key=lambda r:r['id'])
         return self.results
 
-    async def get_all_observations_async(self, params):
+    async def get_all_observations_async(self, params) -> None:
+        """
+        Asynchronous method to get multiple pages of iNaturalist observations.
+
+        :returns: a string from the overpass API or a json list from iNaturalist.
+        """
         await self.api_call('observations', **params)
 
     def get_all_observations(self, **params):
+        """
+        Method to get multiple pages of iNaturalist observations. All pages
+        will be combined in one list and can be obtained with `getResults()`.
+
+        :returns: list of json results from iNaturalist.
+        """
         self.initCommand()
         params['per_page'] = self.PER_PAGE
         params['page'] = 1
         asyncio.run(self.get_all_observations_async(params))
         return self.getResults()
 
-    async def get_taxa_by_id_async(self, ids, params):
+    async def get_taxa_by_id_async(self, ids: List[str], params) -> None:
+        """
+        Asynchronous method to get taxa by id. `ids` is a list of numeric taxon
+        ids. `params` are parameters to pass to the iNaturalist API.
+
+        iNaturalist returns up to 30 taxa in one call. This function breaks
+        down `ids` into chunks of not more than 30 taxa and sends those to
+        the iNaturalist API.
+
+        :param ids: List of numeric taxon ids.
+        :type ids: List[str]
+        :param params: dict of parameters to send to iNaturalist API.
+        :type params: Dict[str, object]
+        """
         MAX_TAXA = 30
         splitIds = []
         while len(ids) > MAX_TAXA:
@@ -155,15 +208,40 @@ class iNaturalistAPI:
                  for idList in splitIds]
         await asyncio.gather(*tasks)
 
-    def get_taxa_by_id(self, ids, **params):
+    def get_taxa_by_id(self, ids: List[str], **params) -> \
+        List[Dict[str, object]]:
+        """
+        Method to get iNaturalist taxa by id. `ids` is a list of numeric taxon
+        ids. `params` are parameters to pass to the iNaturalist API. This
+        function returns a list of json dicts for the taxa.
+
+        :param ids: List of numeric taxon ids.
+        :type ids: List[str]
+        :param params: dict of parameters to send to iNaturalist API.
+        :type params: Dict[str, object]
+        :returns: a list of iNaturalist json results
+        """
         self.initCommand()
         asyncio.run(self.get_taxa_by_id_async(ids, params))
         return self.getResults()
 
-    async def get_places_nearby_async(self, params):
+    async def get_places_nearby_async(self, params) -> None:
+        """
+        Get places nearby.
+
+        :param params: dict of parameters to send to iNaturalist API.
+        :type params: Dict[str, object]
+        """
         await self.api_call('places/nearby', **params)
 
     def get_places_nearby(self, **params):
+        """
+        Get places nearby.
+
+        :param params: dict of parameters to send to iNaturalist API.
+        :type params: Dict[str, object]
+        :returns: a list of iNaturalist json results
+        """
         self.initCommand()
         self.url = self.API_V1
         params['per_page'] = self.PER_PAGE
@@ -172,23 +250,43 @@ class iNaturalistAPI:
         return self.getResults()
 
     async def get_places_by_id_async(self, id: Union[int, str, Set[int]],
-                                     params: Dict[str, int]):
+                                     params: Dict[str, int]) -> None:
+        """
+        :param id: numeric place id or set of numeric place ids
+        :type id: Union[int, Set[int]]
+        :param params: dict of parameters to send to iNaturalist API.
+        :type params: Dict[str, object]
+        """
         if isinstance(id, set):
             id = ','.join([str(i) for i in id])
-        await self.api_call(f'places/{id}')
+        await self.api_call(f'places/{id}', **params)
 
     def get_places_by_id(self, id: Union[int, Set[int]]):
+        """
+        Get places by mumerical id.
+
+        :param id: numeric place id or set of numeric place ids
+        :type id: Union[int, Set[int]]
+        :returns: a list of iNaturalist json results
+        """
         self.initCommand()
         self.url = self.API_V1
         params = { 'per_page': self.PER_PAGE, 'page': 1 }
         asyncio.run(self.get_places_by_id_async(id, params))
         return self.getResults()
 
-    async def get_overpass_async(self, query):
+    async def get_overpass_async(self, query: str) -> None:
         await self.api_call('', data=query)
 
     # We use this class to download OpenStreetMap data as well.
-    def get_overpass(self, query):
+    def get_overpass(self, query: str) -> str:
+        """
+        Query the overpass API.
+
+        :param query: the overpass query, a string
+        :type query: str
+        :returns: str
+        """
         self.initCommand()
         self.url = 'http://overpass-api.de/api/interpreter'
         iNatCallTimes = self.callTimes
@@ -197,8 +295,8 @@ class iNaturalistAPI:
         self.callTimes = iNatCallTimes
         return self.getResults()
 
-    # Limit us to 60 API calls per minute.
-    async def throttleCalls(self):
+    async def throttleCalls(self) -> None:
+        "Limit us to 60 API calls per minute."
         while len(self.callTimes) >= self.CALL_LIMIT:
             waitTime = self.callTimes[0] - (time.time() - 60)
             if waitTime > 0:
@@ -207,7 +305,15 @@ class iNaturalistAPI:
             self.callTimes = self.callTimes[1:]
         self.callTimes.append(time.time())
 
-    async def api_call(self, cmd, **params):
+    async def api_call(self, cmd, **params) -> None:
+        """
+        Make an API call to iNaturalist and overpass API's.
+
+        :param cmd: The command to send to the API, e.g. 'obervations'
+        :type cmd: str
+        :param params: dict of parameters to send to iNaturalist API.
+        :type params: Dict[str, object]
+        """
         await self.throttleCalls()
         async with aiohttp.ClientSession() as session:
             if self.url == self.API_V2:
@@ -222,8 +328,7 @@ class iNaturalistAPI:
                         data = await response.json()
                     else:
                         # Overpass occasionally sends non-json error messages
-                        self.results = await response.text()
-                        print(self.results)
+                        print(response.text())
                         return
 
         if 'errors' in data and 'status' in data:
@@ -263,7 +368,17 @@ api = iNaturalistAPI()
 # Reads tracks from gpx files, returns MultiLineString and bounding box. #
 ##########################################################################
 
-def readGpx(file_names):
+def readGpx(file_names: List[str]) -> Tuple[MultiLineString,
+                                            Tuple[Tuple[float,float],
+                                                  Tuple[float,float]]]:
+    """
+    Reads .gpx files of tracks and returns a MultiLineString and
+    the bounding box.
+
+    :param file_names: list of .gpx file names
+    :type file_names: List[str]
+    :returns: a tuple consisting of a MultiLineString instance and the bounding box
+    """
     trksegs = []
     for fn in file_names:
         print(f"Reading '{fn}'...")
@@ -275,8 +390,8 @@ def readGpx(file_names):
                    for trkpt in trkseg.findall(f'{namespace}trkpt')]
             if len(seg) > 1:
                 trksegs.append(seg)
-    min_x = min_y = 180
-    max_x = max_y = -180
+    min_x = min_y = 180.0
+    max_x = max_y = -180.0
     lineStrings = []
     for track in trksegs:
         x = [coord[0] for coord in track]
@@ -290,9 +405,17 @@ def readGpx(file_names):
     return MultiLineString(lineStrings), ((min_x-ε, min_y-ε),
                                           (max_x+ε, max_y+ε))
 
-# Scale a bounding box to a given precision. Call with precision=100 to scale
-# to lat/lon precision of two decimals. Returns scaled bounding box.
-def scale_bbox(bbox, precision):
+def scale_bbox(bbox: Tuple[Tuple[float,float],
+                           Tuple[float,float]], precision: int):
+    """
+    Scale a bounding box to a given precision. Call with precision=100 to scale
+    to lat/lon precision of two decimals. Returns scaled bounding box.
+
+    :param bbox: bounding box
+    :type bbox: pair of two pairs, the min longitude and latitude and the max longitude and latitude
+    :param precision: the precision, number of decimals desired
+    :type precision: int, a power of 10
+    """
     ((min_x, min_y), (max_x, max_y)) = bbox
     min_x = math.floor(min_x * precision) / precision
     min_y = math.floor(min_y * precision) / precision
@@ -307,8 +430,20 @@ def scale_bbox(bbox, precision):
 ##########################################################################
 
 class Trails:
+    """
+    Class *Trails* gets all named roads and trails within the bounding box from
+    the *overpass* API or our local cache. It intersects these roads and trails
+    with our buffer polygon. It inserts non-empty intersections into an STRTree
+    that allows us to look up the closest trail for given coordinates.
 
-    def __init__(self, bbox, bufferPolygon):
+    :param bbox:
+    :type bbox: tuple consiting of two pairs, a pair of the min longitude and min latitude and other pair of the  max longitude and max latitude
+    :param bufferPolygon: buffer polygon around the tracks of the hike
+    :type bufferPolygon: shapely.geometry.Polygon
+    """
+
+    def __init__(self, bbox: Tuple[Tuple[float,float],Tuple[float,float]],
+                 bufferPolygon: Polygon):
         ((min_lon, min_lat), (max_lon, max_lat)) = scale_bbox(bbox, 100)
         file_name = os.path.join(cache_directory,
                                  f'trails_{min_lon:.2f}_{min_lat:.2f}_'
@@ -325,8 +460,10 @@ class Trails:
             if 'elements' in osm_data:
                 writeJson(file_name, osm_data)
 
-        nodes = {} # id -> (lon, lat)
-        ways  = {} # name -> [LineString or MultiLineString, ...]
+        nodes: Dict[int,Tuple[float,float]] = {}
+        "id -> (lon, lat)"
+        ways: Dict[str,List[Union[LineString,MultiLineString]]] = {}
+        "name -> [LineString or MultiLineString, ...]"
         if 'elements' in osm_data:
             for elem in osm_data['elements']:
                 type = elem['type']
@@ -365,8 +502,16 @@ class Trails:
         print(f'Loaded {len(ways)} named roads and trails: '
               f"{', '.join(sorted(ways))}.")
 
-    # Return name of nearest trails to (lat, lon) or None.
-    def nearestTrail(self, lat, lon):
+    def nearestTrail(self, lat: float, lon: float) -> Optional[str]:
+        """
+        Return name of nearest trails to (*lat*, *lon*) or *None*.
+
+        :param lat: latitude
+        :type lat: float
+        :param lon: latitude
+        :type lon: float
+        :returns: name of nearest trails or *None*
+        """
         if self.STRtree is None:
             return None
         point = Point(lon, lat)
@@ -382,8 +527,8 @@ class Trails:
 # iNaturalist data loading #
 ############################
 
-# quality grades of iNaturalist observations
 quality_grades    = [ 'casual', 'needs_id', 'research' ]
+"Quality grades of iNaturalist observations."
 
 # color coding for iNaturalist iconic taxa
 iconic_taxa2color = { 'Actinopterygii' : 'blue',
@@ -399,33 +544,72 @@ iconic_taxa2color = { 'Actinopterygii' : 'blue',
                       'Plantae'        : 'green',
                       'Protozoa'       : 'purple',
                       'Reptilia'       : 'blue' }
+"Color coding for iNaturalist iconic taxa."
 
 @dataclass
 class Place:
+    """
+    Class *Place* represents a named place.
+    """
     id                : int
+    "numerica place id"
     name              : str
+    "place name"
     bbox_area         : float
+    "area of the bounding box"
     geometry_geojson  : dict
+    "geojson of the place"
     ancestor_place_ids: List[int]
+    "place ids of this place's ancestors"
 
 @dataclass
 class Status:
-    means: str             # establishment means like "native" or "introduced"
-    place: Union[int,str]  # place name or numeric place id
+    """
+    Status consists of an establishment means and a place.
+    """
+    means: str
+    "establishment means, e.g. 'native' or 'introduced'"
+    place: Union[int,str]
+    "place name or numerical place id"
 
 # iNaturalist observation
 class Observation:
+    """
+    This class represents a single iNaturalist observation.
 
-    def __init__(self, id, obscured, accuracy, lat, lon, date,
-                 login, user, quality, trail):
+    :param id: numeric observation id
+    :type id: *int*
+    :param obscured: is the locatin obscured?
+    :type obscured: *bool*
+    :param accuracy: location accuracy in meters or  *None*
+    :type accuracy: *float* or *None*
+    :param lat: latitude
+    :type lat: *float*
+    :param lon: longitude
+    :type lon: *float*
+    :param date: date is ISO format
+    :type date: *str*
+    :param login: login name of user who made this observation
+    :type login: *str*
+    :param user: user name if there is one, login name otherwise
+    :type user: *str*
+    :param quality: observation's quality-grade: *casual*, *needs_id*, *research*
+    :type quality: *str*
+    :param trail: trail name or - for off-trail observations - *None*
+    :type trail: *str* or *None*
+    """
+    def __init__(self, id: int, obscured: bool, accuracy: Optional[float],
+                 lat: float, lon: float, date: datetime.datetime, login: str,
+                 user: str, quality: str, trail: Optional[str]):
         self.id = id
         self.obscured = obscured
         self.accuracy = accuracy
         self.lat = lat
         self.lon = lon
         if isinstance(date, datetime.datetime):
-            date = date.isoformat()
-        self.date = date
+            self.date = date.isoformat()
+        elif isinstance(date, str):
+            self.date = date
         self.login = login
         self.user = user
         self.quality = quality
@@ -435,21 +619,50 @@ class Observation:
 # iNaturalist taxon
 #
 class Taxon:
+    """
+    This class stores an iNaturalist taxon.
 
-    def __init__(self, id, name, common_name, square_url, iconic):
+    :param id: numeric taxon id
+    :type id: *int*
+    :param name: scientific name
+    :type name: *str*
+    :param common_name: common name or *None*
+    :type common_name: *str* or *None*
+    :param square_url: URL to a load thumbnail image for this taxon
+    :type square_url: *str* or *None*
+    :param iconic: this taxon's iconic taxon
+    :type iconic: *str*
+    """
+
+    def __init__(self, id: int, name: str, common_name: str,
+                 square_url: str, iconic: str):
         self.id = id
         self.name = name
         self.common_name = common_name
         self.square_url = square_url
-        self.children = {}
-        self.observations = []
-        self.status = None
+        self.children: List['Taxon'] = []
+        self.observations: List[Observation] = []
+        self.status: Optional[Status] = None
         self.iconic_taxon_name = iconic
 
-    def add_observation(self, observation):
+    def add_observation(self, observation: Observation):
+        """
+        Append an observation to this taxon's list of observations.
+
+        :param observation: an instance of class *Observation*
+        :type observation: *Observation*
+        """
         self.observations.append(observation)
 
-    def html_name(self, with_common_name=False):
+    def html_name(self, with_common_name=False) -> str:
+        """
+        Return the html-formatted name for this taxon, the scientific name
+        italicized as a whole or in parts. Optionally, append the common name
+        in parentheses.
+
+        :param with_common_name: If *True* append the common name in parentheses.
+        :type with_common_name: *bool*
+        """
         name_list = self.name.split()
         if len(name_list) <= 2:
             name = '<i>' + self.name + '</i>'
@@ -462,9 +675,19 @@ class Taxon:
 
 
 # for json taxon returns id, name, common name, square_url, and iconic taxon
-def taxonInfo(taxon):
-    id = taxon['id']
+def taxonInfo(taxon: Dict[str, object]) -> Tuple[int, str, str, str, str]:
+    """
+    Extract components for class *Taxon* from json downloade from iNaturlist.
+
+    :param taxon: json data for taxon obtained from iNatiuralist API
+    :type taxon: dict
+    :returns: 5-tuple consisting of taxon id, scientific name, common name or *None*, url for thumbnail image, name of iconic taxon
+    """
+
+    assert isinstance(taxon['id'], int)
+    id: int = taxon['id']
     name = taxon['name']
+    assert isinstance(name, str)
     rank = taxon['rank']
     if rank in ['variety', 'subspecies']:
         name_list = name.split()
@@ -472,33 +695,50 @@ def taxonInfo(taxon):
         name = ' '.join(name_list[0:2] + [kind, name_list[-1]])
     cname = ''
     if 'preferred_common_name' in taxon:
+        preferred_common_name = taxon['preferred_common_name']
+        assert isinstance(preferred_common_name, str)
         cname = re.sub('(^|-|\s)(\S)', lambda m: m.group(1) +
                                                  m.group(2).upper(),
-                       taxon['preferred_common_name'])
+                       preferred_common_name)
         cname = ' '.join([n.lower() if n == 'And' else n
                           for n in cname.split()])
-    square_url = None
+    square_url = ''
     if 'default_photo' in taxon and \
-       taxon['default_photo'] is not None and \
+       isinstance(taxon['default_photo'], dict) and \
        'square_url' in taxon['default_photo']:
         square_url = taxon['default_photo']['square_url']
-    iconic_taxon_name = None
+    iconic_taxon_name = ''
     if 'iconic_taxon_name' in taxon:
+        assert isinstance(taxon['iconic_taxon_name'], str)
         iconic_taxon_name = taxon['iconic_taxon_name']
-    #print(json.dumps(taxon, indent=4, default=defaultHook))
-    if 'listed_taxa' in taxon:
-        print('listed_taxa...', name, taxon['listed_taxa'])
     return (id, name, cname, square_url, iconic_taxon_name)
 
-# returns list of instances of class Taxon. The list is ordered by scientific
-# name. Each taxon contains a list of observations.
-def getObservations(bbox, bufferPolygon, iconic_taxa, quality_grade, month,
-                    trails):
+def getObservations(bbox: Tuple[Tuple[float,float],Tuple[float,float]],
+                    bufferPolygon: Polygon, iconic_taxa: str,
+                    quality_grade: str, month: bool,
+                    trails: Trails) -> Tuple[List[Taxon], str]:
+    """
+    Returns trees of taxa. Observations are stored at the taxa. Each list of
+    taxa is alphabetically ordered by scientific name. Taxa contain lists of
+    observations.
+
+    :param bbox: bounding box
+    :type bbox: pair of two pairs, the min longitude and latitude and the max longitude and latitude
+    :param bufferPolygon: buffer polygon around the tracks of the hike
+    :type bufferPolygon: shapely.geometry.Polygon
+    :param quality_grade: *'all'* or *'casual'*, *'needs_id'*, *'research'*
+    :type quality_grade: str
+    :param month: download observations only of current, previous and next months
+    :type month: bool
+    :param trails: instance of class *Trails* to lookup trail name
+    :type trails: *Trails*
+    :returns: tuple consisting of a list of iconic taxa; the children of these iconic taxa are taxa of families; the children of the taxa of families contain the observations and a suggestion for the place name
+    """
     month_range = '1,2,3,4,5,6,7,8,9,10,11,12'
     if month:
-        month = datetime.date.today().month
-        month_range = f'{month},{1 if month == 12 else month+1},' \
-                      f'{12 if month == 1 else month-1}'
+        no_month = datetime.date.today().month
+        month_range = f'{no_month},{1 if no_month == 12 else no_month+1},' \
+                      f'{12 if no_month == 1 else no_month-1}'
     ((min_lon, min_lat), (max_lon, max_lat)) = scale_bbox(bbox, 100)
     file_name = os.path.join(cache_directory,
                              f'observations_{iconic_taxa}_{min_lon:.2f}_'
@@ -530,7 +770,7 @@ def getObservations(bbox, bufferPolygon, iconic_taxa, quality_grade, month,
           f"grade '{'all' if quality_grade is None else quality_grade}' within"
           " bounding box.")
 
-    id2taxon = {}
+    id2taxon: Dict[int,Taxon] = {}
     obsOutside = obsAccuracy = 0
     for result in observations:
         user = result['user']
@@ -563,7 +803,15 @@ def getObservations(bbox, bufferPolygon, iconic_taxa, quality_grade, month,
     taxa.sort(key=lambda t:t.name)
     return ancestorInfo(bbox, taxa, bufferPolygon)
 
-def getPlacesNearby(bbox, bufferPolygon):
+def getPlacesNearby(bbox: Tuple[Tuple[float,float],Tuple[float,float]],
+                    bufferPolygon: Polygon) -> List[Place]:
+    """
+    :param bbox: bounding box
+    :type bbox: pair of two pairs, the min longitude and latitude and the max longitude and latitude
+    :param bufferPolygon: buffer polygon around the tracks of the hike
+    :type bufferPolygon: shapely.geometry.Polygon
+    :returns: a list of instances of class *Place* in increasing order of bbox area
+    """
     ((min_lon, min_lat), (max_lon, max_lat)) = scale_bbox(bbox, 1000)
     places_file = os.path.join(cache_directory,
                                f'places_{min_lon:.3f}_{min_lat:.3f}_'
@@ -585,7 +833,14 @@ def getPlacesNearby(bbox, bufferPolygon):
     places.sort(key=lambda p:p.bbox_area)
     return places
 
-def getPlacesById(id: Union[int, Set[int]]):
+def getPlacesById(id: Union[int, Set[int]]) -> List[Place]:
+    """
+    Get places by numerical id.
+
+    :param id: numerical place id or set of numerical place ids
+    :type id: *int* or set of *int*
+    :returns: a list of instances of class *Place* in increasing order of bbox area
+    """
     places_file = os.path.join(cache_directory,
                                f'places_{sorted(id)}.json.gz'
                                if isinstance(id, set)
@@ -605,19 +860,49 @@ def getPlacesById(id: Union[int, Set[int]]):
     places.sort(key=lambda e:e.bbox_area)
     return places
 
-def listedTaxa(taxon, places):
+def listedTaxa(taxon, places: List[Place]) -> Optional[Status]:
+    """
+    Get the status of a taxon - like *introduced* or *native* - for a list
+    of places.
+
+    :param taxon: iNaturalist taxon in json
+    :type taxon: list of dict
+    :param places: list of places
+    :type places: list of *Place*
+    :returns: list of *Status*
+    """
     for place in places:
         for status in taxon['conservation_statuses']:
             if status['place'] is not None:
-                if status['place']['id'] in [place.id] + place.ancestor_place_ids:
+                if status['place']['id'] in [place.id] + \
+                   place.ancestor_place_ids:
                     return Status(status['status'], status['place']['id'])
         for lst in taxon['listed_taxa']:
             assert lst['taxon_id'] == taxon['id']
             if lst['place']['id'] in [place.id] + place.ancestor_place_ids:
                 return Status(lst['establishment_means'], lst['place']['id'])
+    return None
 
-# augment observations with ancestor info: iconic taxon, and family
-def ancestorInfo(bbox, observations, bufferPolygon):
+def ancestorInfo(bbox: Tuple[Tuple[float,float],Tuple[float,float]],
+                 observations: List[Taxon],
+                 bufferPolygon: Polygon) -> Tuple[List[Taxon],str]:
+    """
+    For a list of taxa with observations, return if list of iconic taxa and a
+    suggestion for the place name.
+
+    The iconc taxa are roots of trees. Each iconic taxon has children which are
+    families. The children of these families are the leaf taxa with
+    observations. The lists of iconic taxa, lists of families and lists of leaf
+    taxa are all sorted by scientific names in alphabetical order.
+
+    :param bbox: bounding box
+    :type bbox: pair of two pairs, the min longitude and latitude and the max longitude and latitude
+    :param observations: list of taxa; each taxon has a list of observations
+    :param observations: list of instances of *Taxon*
+    :param bufferPolygon: buffer polygon around the tracks of the hike
+    :type bufferPolygon: shapely.geometry.Polygon
+    :returns: tuple consisting of a list of iconic taxa; the children of these iconic taxa are taxa of families; the children of the taxa of families contain the observations and a suggestion for the place name
+    """
     taxa_file = os.path.join(cache_directory, 'taxa.json.gz')
     taxon_by_id = {}
     taxon_by_id_initial_size = 0
@@ -632,7 +917,7 @@ def ancestorInfo(bbox, observations, bufferPolygon):
     lookup_ids = []
     for taxon in observations:
         id = str(taxon.id)
-        if not id in taxon_by_id:
+        if id not in taxon_by_id:
             lookup_ids.append(id)
 
     # load uncached taxa from iNaturalist
@@ -643,8 +928,8 @@ def ancestorInfo(bbox, observations, bufferPolygon):
                                      fields=FIELDS_TAXA_WITH_ANCESTORS)
 
         # insert taxa into cache
-        for taxon in results:
-            taxon_by_id[str(taxon['id'])] = taxon
+        for itaxon in results:
+            taxon_by_id[str(itaxon['id'])] = itaxon
 
     # save cache
     if len(taxon_by_id) != taxon_by_id_initial_size:
@@ -652,49 +937,59 @@ def ancestorInfo(bbox, observations, bufferPolygon):
 
     places = getPlacesNearby(bbox, bufferPolygon)
 
-    iconic2families = {}
-    iconic2taxa = {}
+    # Turn leaf taxa with observations into trees with iconic taxa and families.
+
+    @dataclass
+    class Iconic:
+        iconic  : Taxon
+        families: Dict[str, Taxon]
+
+    name2iconic: Dict[str,Iconic] = {}
     for taxon in observations:
-        if taxon.iconic_taxon_name not in iconic2families:
-            iconic2families[taxon.iconic_taxon_name] = {}
+        if taxon.iconic_taxon_name not in name2iconic:
             for ancestor in taxon_by_id[str(taxon.id)]['ancestors']:
                 if ancestor['name'] == taxon.iconic_taxon_name:
                     i_id, i_name, i_cname, i_url, _ = taxonInfo(ancestor)
-            iconic2taxa[taxon.iconic_taxon_name] = Taxon(i_id, i_name,
-                                                         i_cname, i_url,
-                                                         None)
-        families = iconic2families[taxon.iconic_taxon_name]
+            name2iconic[taxon.iconic_taxon_name] = \
+                Iconic(Taxon(i_id, i_name, i_cname, i_url, i_name), {})
+
         for ancestor in taxon_by_id[str(taxon.id)]['ancestors']:
             if ancestor['rank'] == 'family':
                 f_id, f_name, f_cname, f_url, f_iconic = taxonInfo(ancestor)
-        if not f_name in families:
-            families[f_name] = Taxon(f_id, f_name, f_cname,
-                                     f_url, f_iconic)
-        families[f_name].children[taxon.name] = taxon
+
+        if f_name not in name2iconic[taxon.iconic_taxon_name].families:
+            name2iconic[taxon.iconic_taxon_name].families[f_name] = \
+                Taxon(f_id, f_name, f_cname, f_url, f_iconic)
+        name2iconic[taxon.iconic_taxon_name].families[f_name]. \
+            children.append(taxon)
         taxon.status = listedTaxa(taxon_by_id[str(taxon.id)], places)
 
     iconic_taxa = []
-    for iconic in sorted(iconic2families):
-        iconic_taxon = iconic2taxa[iconic]
-        iconic_taxon.children = sorted(iconic2families[iconic].values(),
-                                       key=lambda t:t.name)
-        iconic_taxa.append(iconic_taxon)
+    for iconic in sorted(name2iconic.values(), key=lambda i:i.iconic.name):
+        # sort children of each family
+        for f in iconic.families.values():
+            f.children = sorted(f.children, key=lambda t:t.name)
+        # sort families
+        iconic.iconic.children = sorted(iconic.families.values(),
+                                        key=lambda t:t.name)
+        iconic_taxa.append(iconic.iconic)
 
     # For all taxa, replace place id with place name.
     place_id2name = { pl.id : pl.name for pl in places }
-    lookup_places = set([t.status.place for i in iconic_taxa
-                         for f in i.children for t in f.children.values()
-                         if t.status is not None
-                         if t.status.place not in place_id2name])
+    lookup_places: Set[int] = set([int(t.status.place) for i in iconic_taxa
+                                   for f in i.children for t in f.children
+                                   if t.status is not None
+                                   if t.status.place not in place_id2name])
     if len(lookup_places) > 0:
         for pl in getPlacesById(lookup_places):
             place_id2name[pl.id] = pl.name
     for iconic_taxon in iconic_taxa:
         for family in iconic_taxon.children:
-            for taxon in family.children.values():
+            for taxon in family.children:
                 if taxon.status is not None:
-                    taxon.status.place = place_id2name[taxon.status.place]
+                    taxon.status.place = place_id2name[int(taxon.status.place)]
 
+    # Find a guess for the place name.
     place_guess = None
     for place in places:
         if shape(place.geometry_geojson).intersection(bufferPolygon).area > \
@@ -709,8 +1004,22 @@ def ancestorInfo(bbox, observations, bufferPolygon):
 # Write Output Files #
 ######################
 
-# Display observations on an interactive map.
-def getMap(bbox, iconic_taxa, lineStrings, bufferPolygon):
+def getMap(bbox: Tuple[Tuple[float,float],Tuple[float,float]],
+           iconic_taxa: List[Taxon], lineStrings: MultiLineString,
+           bufferPolygon: Polygon) -> folium.Map:
+    """
+    Based on *folium* write an interactive map to an html file and open it
+    in a browser.
+
+    :param bbox: bounding box
+    :type bbox: pair of two pairs, the min longitude and latitude and the max longitude and latitude
+    :param iconic_taxa: list of iconic taxa; the children of iconic taxa are taxa of families; the children of those families are taxa that contain observations
+    :type iconic_taxa: list of instances of *Taxon*
+    :param lineStrings: the track of a hike represented as line strings
+    :type lineStrings: shapely.geometry.MultiLineString
+    :param bufferPolygon: buffer polygon around the tracks of the hike
+    :type bufferPolygon: shapely.geometry.Polygon
+    """
     ((min_lon, min_lat), (max_lon, max_lat)) = bbox
     m = folium.Map(tiles=None)
     folium.FitBounds([(max_lat, max_lon), (min_lat, min_lon)]).add_to(m)
@@ -776,7 +1085,7 @@ def getMap(bbox, iconic_taxa, lineStrings, bufferPolygon):
     # set markers for the observations
     for iconic_taxon in iconic_taxa:
         if iconic_taxon.name not in iconic_taxa2color:
-            print(f"No color for iconic taxon '{iconic}'; using black.")
+            print(f"No color for iconic taxon '{iconic_taxon}'; using black.")
             iconic_taxa2color[iconic_taxon.name] = 'black'
         color = iconic_taxa2color[iconic_taxon.name]
 
@@ -785,7 +1094,7 @@ def getMap(bbox, iconic_taxa, lineStrings, bufferPolygon):
                                      show=family.name not in ['Cyperaceae',
                                                               'Poaceae',
                                                               'Juncaceae'])
-            for taxon in family.children.values():
+            for taxon in family.children:
                 tooltip = taxon.html_name(with_common_name=True)
                 for obs in taxon.observations:
                     popup = '<table><tr><td><a href="https://inaturalist.'+\
@@ -809,9 +1118,25 @@ def getMap(bbox, iconic_taxa, lineStrings, bufferPolygon):
     folium.LayerControl(collapsed=True).add_to(m)
     return m
 
-# write html table of observations and the trails they are on
-def writeTable(iconic_taxa, iconic_taxa_arg, quality_grade, month,
-               place_name, logins):
+def writeTable(iconic_taxa: List[Taxon], iconic_taxa_arg: str,
+               quality_grade: str, month: bool,  place_name: str,
+               logins: bool) -> None:
+    """
+    Write html table of observations and the trails they are found on.
+
+    :param iconic_taxa: list of iconic taxa; the children of iconic taxa are taxa of families; the children of those families are taxa that contain observations
+    :type iconic_taxa: list of instances of *Taxon*
+    :param iconic_taxa_arg: the iconic taxon from the command-line, used in file name
+    :type iconic_taxa_arg: *str*
+    :param quality_grade: *'all'* or *'casual'*, *'needs_id'*, *'research'*; used in file name
+    :type quality_grade: str
+    :param month: parameter *month* from command-line; used in file name
+    :type month: *bool*
+    :param place_name: place name used in file name
+    :type place_name: *str*
+    :param logins: if *True* use observer's login name in table; use numeric observation id if *False*
+    :type logins: *bool*
+    """
     place_filename = place_name.replace(' ', '_').replace('/', '_')
     observations_file_name = os.path.join(output_directory,
                                           f'{place_filename}_{iconic_taxa_arg}_'
@@ -825,10 +1150,9 @@ def writeTable(iconic_taxa, iconic_taxa_arg, quality_grade, month,
         suffix = ' for observations around this month' if month else ''
         today = datetime.date.today()
         print(f'<p>Generated on {today.month}/{today.day}/{today.year} with '
-              '<a href="https://github.com/joergmlpts/iNat-trails" '
+              '<a href="https://inattrails.readthedocs.org" '
               f'target="_blank">iNat-trails</a>{suffix}.</p>', file=f)
         for iconic in iconic_taxa:
-            families = iconic.children
             cname = f' - {iconic.common_name}' if iconic.common_name \
                                                is not None else ''
             print(f'<h2><i>{iconic.name}</i>{cname}</h2>', file=f)
@@ -841,8 +1165,7 @@ def writeTable(iconic_taxa, iconic_taxa_arg, quality_grade, month,
                 print(f'<tr><td><b>{family.html_name(False)}</b></td>'
                       f'<td><b>{family.common_name}</b></td><td></td></tr>',
                       file=f)
-                for taxon in sorted(family.children.values(),
-                                    key=lambda t:t.name):
+                for taxon in family.children:
                     name = taxon.html_name(with_common_name=False)
                     cname = taxon.common_name
                     if taxon.status is not None and \
@@ -850,8 +1173,8 @@ def writeTable(iconic_taxa, iconic_taxa_arg, quality_grade, month,
                         name = '<font color="red">' + name + '</font>'
                         cname = '<font color="red">' + cname + '</font>'
 
-                    trail2obs = {}
-                    no_trail_obs = []
+                    trail2obs: Dict[str,List[Observation]] = {}
+                    no_trail_obs: List[Observation] = []
                     for obs in taxon.observations:
                         if obs.trail is None:
                             no_trail_obs.append(obs)
@@ -881,8 +1204,20 @@ def writeTable(iconic_taxa, iconic_taxa_arg, quality_grade, month,
     print(f"Table written to '{observations_file_name}'.")
     webbrowser.open(observations_file_name)
 
-# write waypoints for off-line mapping app OsmAnd on iPhone and Android
-def writeWaypoints(iconic_taxa, iconic_taxa_arg, quality_grade, place_name):
+def writeWaypoints(iconic_taxa: List[Taxon], iconic_taxa_arg: str,
+                   quality_grade: str, place_name: str) -> None:
+    """
+    Write waypoints for off-line mapping app OsmAnd on iPhone and Android.
+
+    :param iconic_taxa: list of iconic taxa; the children of iconic taxa are taxa of families; the children of those families are taxa that contain observations
+    :type iconic_taxa: list of instances of *Taxon*
+    :param iconic_taxa_arg: the iconic taxon from the command-line, used in file name
+    :type iconic_taxa_arg: *str*
+    :param quality_grade: *'all'* or *'casual'*, *'needs_id'*, *'research'*; used in file name
+    :type quality_grade: str
+    :param place_name: place name used in file name
+    :type place_name: *str*
+    """
     place_filename = place_name.replace(' ', '_').replace('/', '_')
     file_name = os.path.join(output_directory, f'{place_filename}_'
                              f'{iconic_taxa_arg}_{quality_grade}_waypoints.gpx')
@@ -901,7 +1236,7 @@ def writeWaypoints(iconic_taxa, iconic_taxa_arg, quality_grade, place_name):
                 iconic_taxa2color[iconic.name] = 'black'
             color = iconic_taxa2color[iconic.name]
             for family in iconic.children:
-                for taxon in family.children.values():
+                for taxon in family.children:
                     name = taxon.name
                     if taxon.common_name:
                         name += ' (' + taxon.common_name + ')'
@@ -930,35 +1265,61 @@ def writeWaypoints(iconic_taxa, iconic_taxa_arg, quality_grade, place_name):
 # Command-line argument processing. #
 #####################################
 
-if __name__ == '__main__':
-    import argparse
+def fileName(fn):
+    """
+    Is argument a valid filename?
 
-    def fileName(fn):
-        if os.path.isfile(fn):
-            try:
-                with open(fn, 'r') as f:
-                    return fn
-            except:
-                pass
-        raise argparse.ArgumentTypeError(f"File '{fn}' cannot be read.")
+    :param fn: file name
+    :type fn: *str*
+    :raises argparse.ArgumentTypeError: if the argument is no t a valid file name
+    :returns: *fn*
+    """
+    if os.path.isfile(fn):
+        try:
+            with open(fn, 'r') as f:
+                return fn
+        except:
+            pass
+    raise argparse.ArgumentTypeError(f"File '{fn}' cannot be read.")
 
-    def qualityGrade(quality):
-        arg = quality.lower()
-        if arg == 'all' or arg in quality_grades:
+def qualityGrade(quality):
+    """
+    Is *quality* a valid quality-grade?
+
+    :param quality: 'casual', 'needs_id', 'research', or 'all'
+    :type quality: *str*
+    :raises argparse.ArgumentTypeError: if the argument is not *'all'* or a valid quality grade
+    :returns: *quality* in lower case
+    """
+    arg = quality.lower()
+    if arg == 'all' or arg in quality_grades:
+        return arg
+    raise argparse.ArgumentTypeError(f"Quality-grade '{quality}' "
+                                     "not supported.")
+
+def iconicTaxa(iconic):
+    """
+    Is *iconic* a valid iconic taxon?
+
+    :param iconic:  'all' or 'Actinopterygii', ...
+    :type iconic: *str*
+    :raises argparse.ArgumentTypeError: if the argument is not *'all'* or a valid iconic taxon
+    :returns: *'all'* or *iconic* with first letter capitalized
+    """
+    if len(iconic) >= 2:
+        arg = iconic[0].upper() + iconic[1:].lower()
+        if iconic.lower() == 'all':
+            return 'all'
+        elif arg in iconic_taxa2color:
             return arg
-        raise argparse.ArgumentTypeError(f"Quality-grade '{quality}' "
-                                         "not supported.")
+    raise argparse.ArgumentTypeError(f"Iconic taxon '{iconic}' not supported.")
 
-    def iconicTaxa(iconic):
-        if len(iconic) >= 2:
-            arg = iconic[0].upper() + iconic[1:].lower()
-            if iconic.lower() == 'all':
-                return 'all'
-            elif arg in iconic_taxa2color:
-                return arg
-        raise argparse.ArgumentTypeError(f"Iconic taxon '{iconic}' "
-                                         "not supported.")
-
+def main():
+    """
+    Main program, parses command line, reads gps tracks, computes buffer
+    polygon, downloads road and trails, downloads observations, writes
+    waypoints, table, and map.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument('gpx_file', type=fileName, nargs='+',
                         help='Load GPS track from .gpx file.')
@@ -1011,3 +1372,6 @@ if __name__ == '__main__':
     getMap(bbox, iconic_taxa, lineStrings, bufferPolygon).save(file_name)
     print(f"Map written to '{file_name}'.")
     webbrowser.open(file_name)
+
+if __name__ == '__main__':
+    main()

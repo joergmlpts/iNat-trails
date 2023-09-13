@@ -1,0 +1,40 @@
+[project]
+name = 'inattrails'
+version = '0.9.0'
+authors = [
+  { name='joergmlpts', email='joergmlpts@outlook.com' },
+]
+description = 'This tool reads the route of a hike and generates a table of iNaturalist observations along the trails. It also shows the observations and the route of the hike on a map. Moreover, it saves waypoints of the iNaturalist observations for offline navigation with a GPS device or smartphone.'
+readme = 'README.md'
+requires-python = '>=3.7'
+classifiers = [
+  'Development Status :: 5 - Production/Stable',
+  'Intended Audience :: Developers',
+  'Intended Audience :: End Users/Desktop',
+  'License :: OSI Approved :: MIT License',
+  'Operating System :: POSIX',
+  'Programming Language :: Python',
+  'Programming Language :: Python :: 3',
+  'Programming Language :: Python :: 3 :: Only',
+  'Programming Language :: Python :: 3.7',
+  'Programming Language :: Python :: 3.8',
+  'Programming Language :: Python :: 3.9',
+  'Programming Language :: Python :: 3.10',
+  'Programming Language :: Python :: 3.11',
+  'Programming Language :: Python :: 3.12',
+  'Programming Language :: Python :: 3.13',
+]
+dependencies = ['aiohttp', 'shapely', 'folium']
+keywords = ['inaturalist', 'trails', 'hiking']
+
+[project.scripts]
+inattrails = 'inattrails.inat_trails:main'
+
+[project.urls]
+'Documentation' = 'https://inattrails.readthedocs.org'
+'Homepage' = 'https://github.com/joergmlpts/iNat-trails'
+'Bug Tracker' = 'https://github.com/joergmlpts/iNat-trails/issues'
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
