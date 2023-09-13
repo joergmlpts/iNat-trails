@@ -7,9 +7,9 @@ offline navigation with a GPS device or smartphone.
 
 # Documentation
 
-Our documentation is at [inattrails.readthedocs.org](https://inattrails.readthedocs.org).
+Our documentation is at [inat-trails.readthedocs.org](https://inat-trails.readthedocs.org).
 
-- [Utilities](https://inattrails.readthedocs.io/en/latest/usage.html#utility-inattrails)
-- [Installation](https://inattrails.readthedocs.io/en/latest/usage.html#installation)
-- [API Tutorial](https://inattrails.readthedocs.io/en/latest/api.html)
-- [API Reference](https://inattrails.readthedocs.io/en/latest/api.html#detailed-api-documentation)
+- [Utilities](https://inat-trails.readthedocs.io/en/latest/usage.html#utility-inattrails)
+- [Installation](https://inat-trails.readthedocs.io/en/latest/usage.html#installation)
+- [API Tutorial](https://inat-trails.readthedocs.io/en/latest/api.html)
+- [API Reference](https://inat-trails.readthedocs.io/en/latest/api.html#detailed-api-documentation)
