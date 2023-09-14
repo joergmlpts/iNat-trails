@@ -1,6 +1,6 @@
 [project]
 name = 'inattrails'
-version = '0.9.6'
+version = '0.9.7'
 authors = [
   { name='joergmlpts', email='joergmlpts@outlook.com' },
 ]
@@ -31,7 +31,7 @@ keywords = ['inaturalist', 'trails', 'hiking']
 inat-trails = 'inattrails.inat_trails:main'
 
 [project.urls]
-'Documentation' = 'https://inattrails.readthedocs.org'
+'Documentation' = 'https://inat-trails.readthedocs.org'
 'Homepage' = 'https://github.com/joergmlpts/iNat-trails'
 'Bug Tracker' = 'https://github.com/joergmlpts/iNat-trails/issues'
 
