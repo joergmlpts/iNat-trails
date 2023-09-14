@@ -1150,7 +1150,8 @@ def writeTable(iconic_taxa: List[Taxon], iconic_taxa_arg: str,
         suffix = ' for observations around this month' if month else ''
         today = datetime.date.today()
         print(f'<p>Generated on {today.month}/{today.day}/{today.year} with '
-              '<a href="https://inattrails.readthedocs.org" '
+              '<a href="https://inat-trails.readthedocs.io/'
+              'en/latest/usage.html" '
               f'target="_blank">iNat-trails</a>{suffix}.</p>', file=f)
         for iconic in iconic_taxa:
             cname = f' - {iconic.common_name}' if iconic.common_name \

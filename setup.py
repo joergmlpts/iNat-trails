@@ -6,7 +6,7 @@ def long_description() -> str:
         return f.read()
 
 setup(name='inattrails',
-      version='0.9.5',
+      version='0.9.6',
       package_dir={'inattrails': 'src/inattrails'},
       packages=['inattrails'],
       author='joergmlpts',
@@ -39,7 +39,7 @@ setup(name='inattrails',
       ],
       entry_points = {
               'console_scripts': [
-                  'inattrails=inattrails.inat_trails:main',
+                  'inat-trails=inattrails.inat_trails:main',
               ],              
           },
       python_requires='>=3.7',

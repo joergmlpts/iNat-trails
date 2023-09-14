@@ -2,7 +2,7 @@ Usage
 =====
 
 At a low level, **inattrails** provides Python code to download named roads
-and trails and also iNturalist observations along hiking trails.
+and trails and also iNaturalist observations along hiking trails.
 This functionality may be used in other Python projects. They are described in
 the :ref:`api` section.
 
@@ -17,7 +17,8 @@ smartphone.
 Installation
 ------------
 
-*inattrails* runs on Python 3.7 or higher and it can be installed with *pip*.
+Package *inattrails* provides utility *inat-trails* and it runs on Python 3.7
+or higher and can be installed with *pip*.
 
 .. code-block:: console
 
@@ -26,8 +27,8 @@ Installation
 
 .. _utility:
 
-Utility inattrails
-------------------
+Utility inat-trails
+-------------------
 
 Besides a Python package this is a command-line tool. It is called with a .gpx
 file describing the route. This .gpx file can either be downloaded after a hike
@@ -36,13 +37,13 @@ website. The gpx files in the
 `examples directory <https://github.com/joergmlpts/iNat-trails/tree/master/examples>`_
 have been created using the free website `caltopo.com <https://caltopo.com>`_.
 
-This is an example where we first download one of gps tracks from *inattrail*'s
+This is an example where we first download one of gps tracks from *inat-trail*'s
 examples:
 
 .. code-block:: console
 
    wget https://github.com/joergmlpts/iNat-trails/raw/master/examples/Rancho_Canada_del_Oro.gpx
-   inattrails Rancho_Canada_del_Oro.gpx
+   inat-trails Rancho_Canada_del_Oro.gpx
 
 The output looks like this:
 
@@ -133,8 +134,8 @@ as arguments. These options are supported:
 
 .. code-block:: console
 
-   $ inattrails -h
-   usage: inattrails [-h] [--quality_grade QUALITY_GRADE] [--iconic_taxon ICONIC_TAXON] [--login_names] gpx_file [gpx_file ...]
+   $ inat-trails -h
+   usage: inat-trails [-h] [--quality_grade QUALITY_GRADE] [--iconic_taxon ICONIC_TAXON] [--login_names] gpx_file [gpx_file ...]
 
    positional arguments:
      gpx_file              Load GPS track from .gpx file.

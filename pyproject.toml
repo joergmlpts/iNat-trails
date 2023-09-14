@@ -1,6 +1,6 @@
 [project]
 name = 'inattrails'
-version = '0.9.5'
+version = '0.9.6'
 authors = [
   { name='joergmlpts', email='joergmlpts@outlook.com' },
 ]
@@ -28,7 +28,7 @@ dependencies = ['aiohttp', 'shapely', 'folium']
 keywords = ['inaturalist', 'trails', 'hiking']
 
 [project.scripts]
-inattrails = 'inattrails.inat_trails:main'
+inat-trails = 'inattrails.inat_trails:main'
 
 [project.urls]
 'Documentation' = 'https://inattrails.readthedocs.org'
