@@ -77,9 +77,10 @@ def taxonInfo(taxon: Dict[str, object]) -> Tuple[int, str, str, str, str]:
     name = taxon['name']
     assert isinstance(name, str)
     rank = taxon['rank']
-    if rank in ['variety', 'subspecies']:
+    if rank in ['variety', 'subspecies', 'form']:
         name_list = name.split()
-        kind = 'ssp.' if rank == 'subspecies' else 'var.'
+        kind = 'ssp.' if rank == 'subspecies' else \
+                      'f.' if rank == 'form' else 'var.'
         name = ' '.join(name_list[0:2] + [kind, name_list[-1]])
     cname = ''
     if 'preferred_common_name' in taxon:
