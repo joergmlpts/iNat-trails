@@ -117,13 +117,26 @@ def main():
 
     # write html with observations on an interactive map
     place_filename = place_name.replace(' ', '_').replace('/', '_')
-    file_name = os.path.join(output_directory,
-                             f'{place_filename}_{args.iconic_taxon}_'
-                             f'{args.quality_grade}_'
-                             f'mapped_observations.html')
-    getMap(bbox, iconic_taxa, lineStrings, bufferPolygon).save(file_name)
-    print(f"Map written to '{file_name}'.")
-    webbrowser.open(file_name)
+    file_name = f'{place_filename}_{args.iconic_taxon}_{args.quality_grade}'
+    map = getMap(bbox, iconic_taxa, lineStrings, bufferPolygon)
+    while True:
+        map_file_name = os.path.join(output_directory,
+                                     f'{file_name}_mapped_observations.html')
+        try:
+            map.save(map_file_name)
+            print(f"Map written to '{map_file_name}'.")
+            webbrowser.open(map_file_name)
+            return
+        except Exception as e:
+            if 'File name too long' in str(e):
+                file_name = file_name[:len(file_name) // 2]
+                print(f'Warning: Cannot write file; shortening file name.')
+                continue
+            print(f"Error: failed to write mapped observations: {e}.")
+            if os.path.exists(map_file_name):
+                os.unlink(map_file_name)
+            return
+
 
 if __name__ == '__main__':
     main()
