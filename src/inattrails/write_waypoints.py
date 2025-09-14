@@ -50,7 +50,7 @@ def writeWaypoints(iconic_taxa: List[Taxon], iconic_taxa_arg: str,
                                 background = 'circle'
                                 print(file=f)
                                 print(f'  <wpt lat="{obs.lat}" '
-                                      'lon="{obs.lon}">', file=f)
+                                      f'lon="{obs.lon}">', file=f)
                                 print(f'    <name>{name}</name>', file=f)
                                 print( '    <extensions>', file=f)
                                 print(f'      <osmand:icon>{icon}'

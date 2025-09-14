@@ -1,6 +1,6 @@
 [project]
 name = 'inattrails'
-version = '0.9.10'
+version = '0.9.11'
 authors = [
   { name='joergmlpts', email='joergmlpts@outlook.com' },
 ]
@@ -38,3 +38,6 @@ inat-trails = 'inattrails.main:main'
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.setuptools]
+license-files = []
